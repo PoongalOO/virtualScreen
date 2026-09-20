@@ -53,6 +53,9 @@ Copie sans corruption, y compris zones se chevauchant.
 ### SS-026 — Implémenter Hextile — P1
 Tests unitaires par sous-encodage et comparaison avec image attendue.
 
+### SS-027 — Implémenter FramebufferUpdateRequest — P0
+Message de 10 octets (incrémental ou complet, zone U16), zone non vide validée, testé octet par octet. Issue ajoutée après SS-023 : sans ce message le client ne peut pas demander de mise à jour, et SS-031 en dépend. Le message de battement de SS-064 en dérive.
+
 ## Epic E3 — Rendu
 
 ### SS-030 — Créer RemoteSurfaceView — P0
@@ -129,6 +132,9 @@ Objectif : aucune copie plein écran inutile par update.
 
 ### SS-063 — Benchmark RAW vs Hextile — P2
 Mesurer CPU, réseau, FPS et latence sur GT-P5110 réelle.
+
+### SS-064 — Supprimer la latence de réveil Wi-Fi — P1
+Sur liaison silencieuse, un paquet entrant attend en médiane ~700 ms (jusqu'à ~1,9 s) avant d'être délivré à la tablette. **Critères :** cause identifiée par mesure ; correctif validé sur GT-P5110 réelle contre un vrai serveur ; aucune allocation par battement ; arrêt propre à la fin de session. Livré : battement applicatif `KeepAlive` (une requête incrémentale d'un pixel toutes les 100 ms), latence des mises à jour spontanées ramenée à moins de 4 ms. Reste à brancher sur la connexion réelle (SS-054/SS-031).
 
 ## Epic E7 — Sécurité
 

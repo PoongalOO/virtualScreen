@@ -34,5 +34,9 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.btn_diagnostic).setOnClickListener {
             startActivity(Intent(this, DiagnosticActivity::class.java))
         }
+
+        findViewById<Button>(R.id.btn_render_test).setOnClickListener {
+            startActivity(Intent(this, RemoteActivity::class.java))
+        }
     }
 }

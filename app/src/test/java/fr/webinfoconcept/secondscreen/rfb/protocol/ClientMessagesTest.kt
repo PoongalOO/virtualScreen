@@ -138,6 +138,88 @@ class ClientMessagesTest {
         assertEquals(Encoding.ADVERTISED.size, Encoding.ADVERTISED.toSet().size)
     }
 
+    // ------------------------------------------------ FramebufferUpdateRequest (SS-027)
+
+    @Test
+    fun `FramebufferUpdateRequest matches the protocol byte for byte`() {
+        // Écran complet 1280x800 : x=0 y=0 w=0x0500 h=0x0320
+        assertArrayEquals(
+            hex("03 01  0000 0000 0500 0320"),
+            ClientMessages.framebufferUpdateRequest(incremental = true, x = 0, y = 0, w = 1280, h = 800)
+        )
+        assertArrayEquals(
+            hex("03 00  0000 0000 0500 0320"),
+            ClientMessages.framebufferUpdateRequest(incremental = false, x = 0, y = 0, w = 1280, h = 800)
+        )
+        assertEquals(10, ClientMessages.FRAMEBUFFER_UPDATE_REQUEST_LENGTH)
+        assertEquals(3, ClientMessages.TYPE_FRAMEBUFFER_UPDATE_REQUEST)
+    }
+
+    @Test
+    fun `FramebufferUpdateRequest carries an arbitrary region in big endian`() {
+        assertArrayEquals(
+            hex("03 01  0102 0304 0506 0708"),
+            ClientMessages.framebufferUpdateRequest(true, 0x0102, 0x0304, 0x0506, 0x0708) // l'ordre des octets compte
+        )
+    }
+
+    @Test
+    fun `FramebufferUpdateRequest values are unsigned 16 bit`() {
+        assertArrayEquals(
+            hex("03 00  ffff ffff ffff ffff"),
+            ClientMessages.framebufferUpdateRequest(false, 65535, 65535, 65535, 65535)
+        )
+        assertArrayEquals(hex("03 01  8000 8000 0001 0001"), ClientMessages.framebufferUpdateRequest(true, 32768, 32768, 1, 1))
+    }
+
+    @Test
+    fun `FramebufferUpdateRequest refuses out of range values and empty regions`() {
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, -1, 0, 10, 10) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 0, -1, 10, 10) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 65536, 0, 10, 10) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 0, 65536, 10, 10) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 0, 0, 65536, 10) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 0, 0, 10, 65536) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 0, 0, 0, 10) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 0, 0, 10, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.framebufferUpdateRequest(true, 0, 0, -5, 10) }
+    }
+
+    @Test
+    fun `the keep alive message is an incremental request for one pixel at the origin`() {
+        assertArrayEquals(hex("03 01  0000 0000 0001 0001"), ClientMessages.keepAliveRequest())
+        assertEquals(ClientMessages.FRAMEBUFFER_UPDATE_REQUEST_LENGTH, ClientMessages.keepAliveRequest().size)
+    }
+
+    @Test
+    fun `the keep alive interval is the measured 100 ms`() {
+        // Voir PERFORMANCE.md : à 100 ms seuls 2 % des paquets dépassent 50 ms ; au-delà de 400 ms le mécanisme perd son effet.
+        assertEquals(100L, ClientMessages.KEEP_ALIVE_INTERVAL_MS)
+    }
+
+    @Test
+    fun `request messages return a fresh array each time`() {
+        val first = ClientMessages.keepAliveRequest()
+        first.fill(0x55)
+
+        assertArrayEquals(hex("03 01  0000 0000 0001 0001"), ClientMessages.keepAliveRequest())
+        assertNotSame(ClientMessages.keepAliveRequest(), ClientMessages.keepAliveRequest())
+    }
+
+    @Test(timeout = 10_000)
+    fun `the requests reach the server intact after the configuration messages`() = LoopbackPair().use { p ->
+        val messages = listOf(
+            ClientMessages.setPixelFormat(),
+            ClientMessages.setEncodings(),
+            ClientMessages.framebufferUpdateRequest(false, 0, 0, 1280, 800),
+            ClientMessages.keepAliveRequest()
+        )
+        for (m in messages) p.client.write(m, 0, m.size)
+
+        val expected = messages.fold(ByteArray(0)) { acc, m -> acc + m }
+        assertArrayEquals(expected, p.receiveExactly(expected.size))
+    }
+
     // ------------------------------------------------------------- général
 
     @Test

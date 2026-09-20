@@ -116,6 +116,16 @@ Un `RectangleListener` optionnel est notifié après chaque rectangle décodé (
 - KeyEvent ;
 - PointerEvent.
 
+### FramebufferUpdateRequest (SS-027)
+
+`U8 type = 3`, `U8 incremental`, `U16 x`, `U16 y`, `U16 largeur`, `U16 hauteur` : 10 octets. C'est le seul moyen pour le client de demander des pixels.
+
+- **Incrémental** (`incremental = 1`) : seulement ce qui a changé depuis la dernière mise à jour ; le serveur peut attendre qu'un changement se produise avant de répondre. C'est la requête normale d'un client en régime établi : à renvoyer après chaque `FramebufferUpdate` reçu.
+- **Complet** (`incremental = 0`) : la zone entière quoi qu'il en soit. À réserver au premier affichage, après un changement de format ou d'encodage, et à la reconnexion.
+- Les quatre valeurs sont des U16 ; une zone vide est refusée. La zone n'est pas bornée à l'écran (la taille distante n'est pas connue du message) : l'appelant la déduit de `ServerInit`.
+
+**Message de battement** (`ClientMessages.keepAliveRequest`, SS-064) : une requête **incrémentale d'un seul pixel en (0, 0)**, envoyée toutes les 100 ms par `KeepAlive` pour que la radio Wi-Fi de la tablette ne s'endorme pas (voir PERFORMANCE.md, « Latence Wi-Fi de la tablette »). Elle est légale à tout moment ; le serveur n'y répond que si ce pixel change. Validée contre TigerVNC.
+
 ## Encodages
 
 ### Annonce — `SetEncodings` (SS-022)

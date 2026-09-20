@@ -29,5 +29,12 @@
         <activity
             android:name=".DiagnosticActivity"
             android:label="@string/diagnostic_title" />
+
+        <!-- SS-030 : écran distant plein écran, non exporté. L'orientation paysage forcée et le mode immersif
+             (barre système) relèvent de SS-032/SS-034. -->
+        <activity
+            android:name=".RemoteActivity"
+            android:label="@string/remote_title"
+            android:theme="@style/RemoteTheme" />
     </application>
 </manifest>

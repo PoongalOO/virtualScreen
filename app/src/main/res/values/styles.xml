@@ -9,4 +9,10 @@
              remplissage relevé par Lint (Overdraw). -->
         <item name="android:windowBackground">@null</item>
     </style>
+
+    <!-- Écran distant (SS-030) : plein écran (barre d'état masquée), sans barre d'action, fond noir pour
+         qu'aucun flash blanc n'apparaisse avant le premier rendu. Thème framework, disponible en API 17. -->
+    <style name="RemoteTheme" parent="@android:style/Theme.Holo.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
 </resources>

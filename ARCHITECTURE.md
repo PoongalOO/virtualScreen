@@ -57,6 +57,14 @@ Tester RGB_565 uniquement si la mémoire devient un problème et si la perte de 
 
 **Implémentation (SS-020)** : le stockage principal est un `IntArray` ARGB_8888 (`rfb.framebuffer.Framebuffer`), alloué une fois, en JVM pur donc testable sans appareil. Les mises à jour (`fillRect`, `writeRect`) valident le rectangle avant d'écrire et lèvent `RectangleOutOfBounds` sinon. Le rendu (SS-031) copiera le seul rectangle modifié dans le Bitmap avec `Bitmap.setPixels(pixels, offset, stride, x, y, w, h)` (API 1), sans copie intermédiaire. Le suivi des rectangles modifiés et la synchronisation entre le thread I/O (décodage) et le rendu restent à définir avec SS-031.
 
+## Rendu (SS-030)
+
+`render/RemoteSurfaceView` (un `SurfaceView`) copie le `Framebuffer` dans un `Bitmap` ARGB_8888 alloué une fois, puis le dessine en (0, 0) **sans mise à l'échelle** : filtrage désactivé, `Bitmap.DENSITY_NONE` (sans quoi Android peut redimensionner selon la densité), surface en `RGBX_8888` (le tampon par défaut d'un `SurfaceView` ancien est en 16 bits). La vue garde l'écran allumé. Vérifié sur la GT-P5110 par comparaison pixel à pixel d'une capture : les 752 lignes visibles (962 560 pixels) sont identiques au motif ; les 48 lignes du bas sont sous la barre système (SS-034). `RemoteActivity` l'héberge en plein écran ; elle affiche pour l'instant un motif de test (`RenderTestPattern`). La copie plein écran, le suivi des zones modifiées et la synchronisation avec le décodage relèvent de SS-031.
+
+## Réseau (SS-064)
+
+`net/KeepAlive` envoie un message toutes les 100 ms sur un thread démon dédié pour que la liaison Wi-Fi ne devienne jamais silencieuse : sinon la radio de la tablette s'endort et la latence d'un paquet entrant atteint ~1,9 s (mesures dans PERFORMANCE.md). Le battement est un `FramebufferUpdateRequest` incrémental d'un pixel. Il s'arrête de lui-même si l'envoi échoue. Le contrôleur de connexion le démarrera avec la session et l'arrêtera à sa fin.
+
 ## Dépendances
 
 Politique : zéro dépendance réseau/protocole pour le MVP. Utiliser les API standard Java/Android (`Socket`, streams, `Bitmap`, `Canvas`, `SurfaceView`). Une dépendance ne peut être ajoutée que si elle :
