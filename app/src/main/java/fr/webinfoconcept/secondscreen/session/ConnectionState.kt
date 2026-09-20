@@ -26,7 +26,11 @@ enum class ConnectionState {
     /** Session établie : l'écran distant est affiché et les entrées sont envoyées. */
     CONNECTED,
 
-    /** Comme [CONNECTING], mais lancé par [ConnectionController.reconnect] après une session. */
+    /**
+     * Comme [CONNECTING], mais après une session : lancé par [ConnectionController.reconnect], ou **automatiquement**
+     * (SS-055) quand la connexion est coupée : le contrôleur attend puis retente ([ConnectionController.reconnectStatus]
+     * dit où il en est).
+     */
     RECONNECTING,
 
     /** La connexion a échoué ou s'est interrompue ; [ConnectionController.failure] dit pourquoi. */
@@ -44,8 +48,9 @@ enum class ConnectionState {
     fun canTransitionTo(next: ConnectionState): Boolean = when (this) {
         DISCONNECTED -> next == CONNECTING || next == RECONNECTING
         CONNECTING, RECONNECTING -> next == NEGOTIATING || next == ERROR || next == DISCONNECTED
-        NEGOTIATING -> next == CONNECTED || next == ERROR || next == DISCONNECTED
-        CONNECTED -> next == ERROR || next == DISCONNECTED
+        // Reconnexion automatique (SS-055) : une session ou une tentative qui échoue provisoirement repasse en RECONNECTING.
+        NEGOTIATING -> next == CONNECTED || next == ERROR || next == DISCONNECTED || next == RECONNECTING
+        CONNECTED -> next == ERROR || next == DISCONNECTED || next == RECONNECTING
         ERROR -> next == CONNECTING || next == RECONNECTING || next == DISCONNECTED
     }
 }

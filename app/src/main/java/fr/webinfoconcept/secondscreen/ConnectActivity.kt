@@ -18,6 +18,7 @@ import fr.webinfoconcept.secondscreen.session.ConnectionController
 import fr.webinfoconcept.secondscreen.session.ConnectionFailure
 import fr.webinfoconcept.secondscreen.session.ConnectionParams
 import fr.webinfoconcept.secondscreen.session.ConnectionState
+import fr.webinfoconcept.secondscreen.settings.ConnectionSettings
 import fr.webinfoconcept.secondscreen.ui.FailureMessages
 
 /**
@@ -40,6 +41,8 @@ class ConnectActivity : Activity(), ConnectionController.Listener {
     private lateinit var port: EditText
     private lateinit var password: EditText
     private lateinit var save: CheckBox
+    private lateinit var auto: CheckBox
+    private lateinit var settings: ConnectionSettings
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
     private lateinit var connect: Button
@@ -59,6 +62,9 @@ class ConnectActivity : Activity(), ConnectionController.Listener {
         port = findViewById(R.id.connect_port)
         password = findViewById(R.id.connect_password)
         save = findViewById(R.id.connect_save)
+        auto = findViewById(R.id.connect_auto)
+        settings = ConnectionSettings(PreferencesStore(this, ConnectionSettings.FILE_NAME))
+        if (savedInstanceState == null) auto.isChecked = settings.autoReconnect
         status = findViewById(R.id.connect_status)
         progress = findViewById(R.id.connect_progress)
         connect = findViewById(R.id.connect_button)
@@ -135,7 +141,9 @@ class ConnectActivity : Activity(), ConnectionController.Listener {
         // Le mot de passe quitte le champ avant tout le reste : copié, puis le champ est vidé.
         val secret = takePassword()
         val params = ConnectionParams(form.host!!, form.port!!)
-        if (!controller.connect(params, secret)) { // a effacé `secret`
+        settings.autoReconnect = auto.isChecked
+        // Avec la reconnexion automatique une copie du mot de passe reste en mémoire jusqu'à la fin de la session (SECURITY.md).
+        if (!controller.connect(params, secret, autoReconnect = auto.isChecked)) { // a effacé `secret`
             showStatus(getString(R.string.connect_busy), error = true)
         }
     }
@@ -197,7 +205,7 @@ class ConnectActivity : Activity(), ConnectionController.Listener {
     }
 
     private fun setFormEnabled(enabled: Boolean) {
-        for (view in listOf<View>(name, host, port, password, save)) view.isEnabled = enabled
+        for (view in listOf<View>(name, host, port, password, save, auto)) view.isEnabled = enabled
     }
 
     private fun showStatus(text: String, error: Boolean) {

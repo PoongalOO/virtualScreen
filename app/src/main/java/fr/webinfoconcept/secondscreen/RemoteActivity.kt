@@ -28,6 +28,8 @@ import fr.webinfoconcept.secondscreen.render.RemoteSurfaceView
 import fr.webinfoconcept.secondscreen.session.ConnectionController
 import fr.webinfoconcept.secondscreen.session.ConnectionFailure
 import fr.webinfoconcept.secondscreen.session.ConnectionState
+import fr.webinfoconcept.secondscreen.session.ReconnectStatus
+import fr.webinfoconcept.secondscreen.settings.ConnectionSettings
 import fr.webinfoconcept.secondscreen.settings.DisplaySettings
 import fr.webinfoconcept.secondscreen.settings.InputSettings
 import fr.webinfoconcept.secondscreen.session.SessionInfo
@@ -97,6 +99,8 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     private lateinit var reconnect: Button
     private lateinit var fullscreenButton: Button
     private lateinit var scaleButton: Button
+    private lateinit var stopAuto: Button
+    private lateinit var connectionSettings: ConnectionSettings
     private var fitToScreen = false
     private lateinit var keys: View
     private lateinit var keyboardView: KeyboardInputView
@@ -161,7 +165,13 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         setUpPointerMode()
         setUpKeyboard()
 
-        reconnect.setOnClickListener { askReconnect() }
+        connectionSettings = ConnectionSettings(PreferencesStore(this, ConnectionSettings.FILE_NAME))
+        stopAuto = findViewById(R.id.remote_stop_auto)
+        stopAuto.setOnClickListener { controller.stopAutoReconnect() }
+        reconnect.setOnClickListener {
+            // Pendant l'attente d'une reconnexion automatique le bouton dit « Réessayer maintenant » ; sinon c'est la reconnexion manuelle.
+            if (controller.reconnectStatus?.waiting == true) controller.retryNow() else askReconnect()
+        }
         findViewById<Button>(R.id.remote_close).setOnClickListener { leave() }
         findViewById<Button>(R.id.bar_disconnect).setOnClickListener { leave() }
         findViewById<Button>(R.id.bar_diagnostic).setOnClickListener {
@@ -315,6 +325,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     }
 
     override fun onStop() {
+        overlay.removeCallbacks(countdown)
         touchInput.cancelGesture()
         controller.removeListener(this)
         controller.setRenderTarget(null)
@@ -432,21 +443,52 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
             overlay.visibility = View.GONE
             return
         }
+        val auto = if (state == ConnectionState.RECONNECTING) controller.reconnectStatus else null
         val busy = state == ConnectionState.CONNECTING || state == ConnectionState.RECONNECTING ||
             state == ConnectionState.NEGOTIATING
         overlay.visibility = View.VISIBLE
         progress.visibility = if (busy) View.VISIBLE else View.GONE
-        reconnect.visibility = if (busy) View.GONE else View.VISIBLE
-        reconnect.isEnabled = controller.lastConnection != null
+        // Reconnexion automatique : « Réessayer maintenant » et « Arrêter » ; sinon Reconnecter seulement hors connexion en cours.
+        reconnect.visibility = if (busy && auto == null) View.GONE else View.VISIBLE
+        reconnect.setText(if (auto != null) R.string.reconnect_now else R.string.remote_reconnect)
+        reconnect.isEnabled = auto != null || controller.lastConnection != null
+        stopAuto.visibility = if (auto != null) View.VISIBLE else View.GONE
         showBar(false)
         applyImmersive()
 
-        status.text = when (state) {
+        status.text = statusText(state, failure, auto)
+        overlay.removeCallbacks(countdown)
+        if (auto?.waiting == true) overlay.postDelayed(countdown, COUNTDOWN_TICK_MS) // le compte à rebours se met à jour seul
+    }
+
+    /** Met à jour le compte à rebours de la reconnexion automatique, une fois par seconde. */
+    private val countdown = object : Runnable {
+        override fun run() {
+            val auto = controller.reconnectStatus
+            if (controller.state != ConnectionState.RECONNECTING || auto == null || !auto.waiting) return
+            status.text = statusText(ConnectionState.RECONNECTING, controller.failure, auto)
+            overlay.postDelayed(this, COUNTDOWN_TICK_MS)
+        }
+    }
+
+    private fun statusText(state: ConnectionState, failure: ConnectionFailure?, auto: ReconnectStatus?): String {
+        if (auto != null) {
+            val cause = if (failure != null) FailureMessages.text(this, failure) + "\n" else ""
+            return cause + if (auto.waiting) {
+                val seconds = ((auto.remainingMs() + 999) / 1_000).toInt() // arrondi vers le haut : jamais « 0 s » avant d'essayer
+                getString(R.string.reconnect_waiting, seconds, auto.attempt, auto.maxAttempts)
+            } else {
+                getString(R.string.reconnect_attempting, auto.attempt, auto.maxAttempts)
+            }
+        }
+        return when (state) {
             ConnectionState.CONNECTING -> getString(R.string.state_connecting, controller.lastConnection.toString())
             ConnectionState.RECONNECTING -> getString(R.string.state_reconnecting, controller.lastConnection.toString())
             ConnectionState.NEGOTIATING -> getString(R.string.state_negotiating)
-            ConnectionState.ERROR ->
-                if (failure != null) FailureMessages.text(this, failure) else getString(R.string.state_disconnected)
+            ConnectionState.ERROR -> {
+                val text = if (failure != null) FailureMessages.text(this, failure) else getString(R.string.state_disconnected)
+                if (controller.gaveUpAfter > 0) text + "\n" + resources.getQuantityString(R.plurals.reconnect_gave_up, controller.gaveUpAfter, controller.gaveUpAfter) else text
+            }
             else -> getString(if (controller.lastConnection != null) R.string.state_disconnected else R.string.state_no_connection)
         }
     }
@@ -488,7 +530,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     /** Relance la connexion ; demande d'abord le mot de passe si le serveur en exigeait un (il n'est pas conservé). */
     private fun askReconnect() {
         if (!controller.reconnectNeedsPassword) {
-            controller.reconnect()
+            controller.reconnect(null, connectionSettings.autoReconnect)
             return
         }
         val field = EditText(this)
@@ -503,7 +545,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
                 val chars = CharArray(editable.length)
                 editable.getChars(0, chars.size, chars, 0)
                 editable.clear()
-                controller.reconnect(if (chars.isEmpty()) null else chars) // efface `chars`
+                controller.reconnect(if (chars.isEmpty()) null else chars, connectionSettings.autoReconnect) // efface `chars`
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -511,6 +553,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     private companion object {
         const val SEEK_MAX = 100
+        const val COUNTDOWN_TICK_MS = 1_000L
 
         // Taille avant la première session : celle de la tablette cible (nominale, AGENTS.md).
         const val FALLBACK_WIDTH = 1280

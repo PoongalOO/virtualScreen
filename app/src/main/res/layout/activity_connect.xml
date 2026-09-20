@@ -110,6 +110,22 @@
             android:textSize="12sp" />
 
         <CheckBox
+            android:id="@+id/connect_auto"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:checked="true"
+            android:text="@string/connect_auto_reconnect" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="32dp"
+            android:text="@string/connect_auto_reconnect_note"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <CheckBox
             android:id="@+id/connect_save"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

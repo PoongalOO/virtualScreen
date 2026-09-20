@@ -18,6 +18,8 @@
     <string name="connect_port_label">Port (5900 par défaut)</string>
     <string name="connect_password_label">Mot de passe VNC (vide si le serveur n\'en demande pas)</string>
     <string name="connect_password_note">Le mot de passe n\'est jamais enregistré : il faut le saisir à chaque connexion.</string>
+    <string name="connect_auto_reconnect">Se reconnecter automatiquement si la connexion est coupée</string>
+    <string name="connect_auto_reconnect_note">Avec un mot de passe, il reste alors en mémoire (jamais enregistré) jusqu\'à la fin de la session. Décochez pour qu\'il soit effacé dès la connexion.</string>
     <string name="connect_save_profile">Enregistrer cette connexion</string>
     <string name="connect_button">Connexion</string>
     <string name="connect_cancel">Annuler la connexion</string>
@@ -55,6 +57,14 @@
     <string name="failure_protocol_error">Le serveur a envoyé des données inattendues.</string>
     <string name="failure_local_error">Erreur interne de la tablette.</string>
 
+    <string name="reconnect_waiting">Nouvelle tentative dans %1$d s (%2$d/%3$d)…</string>
+    <string name="reconnect_attempting">Reconnexion en cours (%1$d/%2$d)…</string>
+    <string name="reconnect_now">Réessayer maintenant</string>
+    <string name="reconnect_stop">Arrêter</string>
+    <plurals name="reconnect_gave_up">
+        <item quantity="one">La reconnexion automatique a été abandonnée après %1$d tentative.</item>
+        <item quantity="other">La reconnexion automatique a été abandonnée après %1$d tentatives.</item>
+    </plurals>
     <string name="remote_title">Écran distant</string>
     <string name="remote_reconnect">Reconnecter</string>
     <string name="remote_close">Fermer</string>

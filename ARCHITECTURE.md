@@ -234,10 +234,24 @@ MainActivity (liste des profils)
 - **Signe de vie** : le battement Wi-Fi (SS-064, une requête incrémentale d'un pixel toutes les 100 ms) ne prouve pas que le serveur vit, il ne provoque aucune réponse. Toutes les 5 s le même thread envoie donc une requête **non incrémentale** d'un pixel, à laquelle le serveur répond toujours. Aucune nouvelle pendant 15 s -> `NETWORK_LOST` (« réseau coupé ou PC en veille »), sans attendre les minutes que TCP met à s'en apercevoir. Un écran distant statique ne déclenche donc pas de fausse coupure.
 - **Session = tant que l'écran distant est visible** : pas de service Android. Accueil, autre application, écran éteint : `RemoteActivity.onStop` ferme la session, donc aucun trafic ni thread en arrière-plan (exception : l'ouverture du diagnostic depuis la barre garde la session). Au retour, le panneau d'état propose **Reconnecter**. Le contrôleur vit autant que le processus (`SessionManager`) : une rotation ou la navigation entre écrans ne coupe pas la session (`configChanges` sur l'écran distant).
 
+### Reconnexion automatique (SS-055)
+Quand une session **établie** est coupée pour une cause **passagère** (`FailureKind.isTransient` : réseau ou PC injoignable, délai, connexion coupée, serveur qui redémarre, ancienne connexion pas encore libérée), le contrôleur passe en `RECONNECTING`, **attend puis retente**, sans intervention :
+
+- **Bornée** : `ConnectionConfig.reconnectDelaysMs` = **1, 2, 4, 8, 15, 30, 30, 30 s**, soit **8 tentatives** sur 2 minutes 30 environ, puis **abandon** (`ERROR`, `gaveUpAfter`, message « abandonnée après 8 tentatives »). Le délai ne dépasse jamais 30 s et le nombre de tentatives est plafonné (validé à la construction : 1 ms à 5 min par délai, 32 tentatives au plus).
+- **Pas de boucle sans fin** : une session qui a tenu au moins 30 s (`reconnectStableMs`) remet le compteur à zéro ; une session qui retombe aussitôt (liaison instable) ne le remet **pas** et finit par être abandonnée (testé).
+- **Ce qui n'est pas retenté** : un échec **non passager** (mot de passe refusé ou changé, pas un serveur VNC, version ou sécurité non prises en charge, écran trop grand, données incohérentes, erreur locale) arrête tout de suite ; un **premier échec de connexion**, avant toute session établie, n'est pas retenté (l'utilisateur est devant l'écran). `SERVER_REJECTED` est retenté : après une coupure le serveur peut refuser tant qu'il n'a pas libéré l'ancienne connexion.
+- **Désactivable** : case « Se reconnecter automatiquement » de l'écran de connexion (mémorisée, `ConnectionSettings`, **cochée par défaut**) ; liste de délais vide = désactivé ; sans la case, comportement inchangé (SS-054).
+- **Commandes** (écran distant) : « Réessayer maintenant » (`retryNow`, saute l'attente), « Arrêter » (`stopAutoReconnect` : `ERROR` avec la cause, l'écran propose alors Reconnecter), « Fermer » ; `disconnect()` arrête tout, y compris pendant l'attente (l'attente est interruptible : sortie immédiate, pas d'attente des 60 s d'un délai).
+- **Affichage** : la dernière image reste visible ; le panneau dit la cause, « Nouvelle tentative dans N s (k/8)… » avec un compte à rebours à la seconde, puis « Reconnexion en cours (k/8)… » pendant la tentative. `ConnectionController.reconnectStatus` (`ReconnectStatus` : tentative, maximum, délai, attente restante) alimente l'écran.
+- **États** : `CONNECTED -> RECONNECTING` et `NEGOTIATING -> RECONNECTING` deviennent des transitions légales (la table unique et son test sont mis à jour) ; `RECONNECTING` sert aussi à la reconnexion manuelle, distinguée par un `reconnectStatus` nul.
+- **Mot de passe** : voir « Secrets » plus bas et SECURITY.md. Pour se reconnecter à un serveur protégé sans l'utilisateur, une **copie est gardée en mémoire seulement** tant que la reconnexion automatique est active ; elle est **effacée de façon synchrone** par `disconnect()`, à l'abandon, à l'arrêt et en fin de session. Chaque tentative reçoit **sa propre copie**, effacée par `VncAuthentication`.
+
 ### Erreurs compréhensibles (SS-053)
 Toute exception du transport ou du protocole est classée par `ConnectionFailure.classify` en une **cause** (`FailureKind`, 17 catégories) et une **phase** (connexion, négociation, session) : le même symptôme n'a pas le même sens partout (un délai de lecture est « le serveur ne répond pas à la négociation » ou « réseau coupé » selon la phase ; « ce serveur veut un mot de passe » et « mot de passe refusé » se distinguent selon qu'un mot de passe a été saisi). L'interface transforme chaque cause en une phrase qui dit **quoi faire** (`FailureMessages`, `when` exhaustif : une cause sans message ne compile pas). Rien d'autre que la raison assainie du serveur n'est affiché ; ni `toString()` ni journal ne contiennent de secret ni de texte serveur.
 
 ### Secrets
+**Exception (SS-055)** : avec la reconnexion automatique, une copie du mot de passe est gardée **en mémoire** jusqu'à la fin de la session (voir SECURITY.md). Sans elle (case décochée, ou serveur sans mot de passe), ce qui suit s'applique tel quel.
+
 Le mot de passe n'existe que dans un `CharArray`. `ConnectActivity` le copie, **vide le champ** (`saveEnabled=false` : pas d'état d'instance), et le confie à `connect`, qui l'**efface dans tous les cas** (succès, échec, abandon, connexion refusée d'emblée ; un test par chemin). Il n'est ni dans un `Intent`, ni dans un profil, ni journalisé, ni **conservé pour la reconnexion** : `reconnect` le redemande (boîte de dialogue) si le serveur en exigeait un (`reconnectNeedsPassword`). Limite : c'est du « meilleur effort » (la JVM et l'`EditText` peuvent garder des copies non effaçables), voir SECURITY.md.
 
 ### Profils (SS-051)
@@ -281,6 +295,23 @@ En plein écran le mode ne s'applique que **barre de commandes masquée** et **s
 | Idem, **écran distant statique** pendant ~60 s (le terminal qui affichait l'heure est fermé) | toujours connecté, aucune fermeture côté serveur : le signe de vie est bien répondu par TigerVNC |
 | Idem, serveur **gelé** (`docker pause` : connexion TCP ouverte, plus aucune réponse) | encore connecté à 8 s ; à ~22 s : « Plus aucune nouvelle du PC : réseau coupé ou PC en veille. » |
 | Idem, **Accueil** pendant une session, puis retour dans l'application | le serveur voit la connexion fermée (4 acceptées, 4 fermées) ; au retour : « Déconnecté » avec Reconnecter |
+
+**Reconnexion automatique (SS-055) — vérifié**
+
+| Vérification | Résultat |
+|---|---|
+| JVM, 26 nouveaux tests (22 de reconnexion contre le faux serveur, 4 de réglage) ; six mutations (borne supprimée, effacement par `disconnect` supprimé, compteur jamais remis à zéro, attente sourde à `disconnect`, échec d'authentification jugé passager, premier échec retenté) | chacune fait échouer des tests |
+| Réussite : session coupée puis serveur qui accepte à nouveau (avec et sans mot de passe) | reconnectée seule ; la cause est affichée pendant l'attente ; nouvel écran distant ; compteur remis à zéro ; le mot de passe gardé sert (le serveur vérifie la réponse DES) puis est effacé à la déconnexion |
+| Bornes : le serveur ne revient jamais | exactement autant de tentatives que de délais, dans l'ordre 40, 80, 160 ms (configuration de test), puis `ERROR` avec `gaveUpAfter`, mot de passe effacé |
+| Instabilité : coupures répétées | une session qui tient assez remet le compteur à zéro (5 reconnexions sans abandon) ; une session qui tombe aussitôt est abandonnée (1 + 3 connexions au plus) |
+| Contrôle : disconnect pendant une attente de 60 s ; `retryNow` ; `stopAutoReconnect` ; connexion manuelle refusée pendant la reconnexion | sortie immédiate et mot de passe effacé ; reconnecté sans attendre ; `ERROR` avec la cause ; refusé (mot de passe du refus effacé) |
+| GT-P5110 contre un vrai TigerVNC **protégé par mot de passe**, coupure du serveur puis relance ~10 s plus tard | « Connexion refusée… Nouvelle tentative dans 1 s (3/8)… » avec compte à rebours, dernière image visible ; **reconnecté tout seul avec authentification, sans boîte de mot de passe**, horloge du bureau distant repartie |
+| Idem, « Réessayer maintenant » pendant une attente de 16 s (6/8) | l'attente est sautée, la tentative part aussitôt |
+| Idem, « Arrêter » | `ERROR` avec la cause, boutons Reconnecter et Fermer, plus aucune tentative |
+| Idem, serveur coupé jusqu'au bout | après ~2 minutes : « La reconnexion automatique a été abandonnée après 8 tentatives. » |
+| Idem, case décochée puis coupure | seulement Reconnecter, comme avant SS-055 |
+
+**Non vérifié (SS-055)** : une **vraie coupure Wi-Fi de la tablette** (les coupures sont des arrêts du serveur ; le cas du réseau qui revient au bout de 15 s de silence n'a été vu qu'en JVM) ; un PC Windows ; la reconnexion pendant une longue durée (SS-061) ; le compte à rebours sur une tablette qui met l'écran en veille (la session se ferme alors, voir « Session = tant que l'écran distant est visible »).
 
 **Non vérifié** : un PC Windows (seul TigerVNC sous Linux, dans un conteneur, a été essayé) ; une vraie coupure Wi-Fi de la tablette (elle a été simulée en arrêtant ou en gelant le serveur) ; le comportement à long terme (SS-061) ; le retournement physique de la tablette avec `configChanges` ; le tap à trois doigts sur une tablette laissée inactive (voir la limite du mode immersif : le premier toucher après quelques secondes est annulé par le système, donc le geste ne marche qu'une fois l'écran touché depuis moins de 3 s ; la touche Retour est la voie fiable).
 

@@ -46,12 +46,32 @@ class ConnectionConfig(
     /** Battement Wi-Fi (SS-064) : requête incrémentale d'un pixel. */
     val keepAliveIntervalMs: Long = ClientMessages.KEEP_ALIVE_INTERVAL_MS,
     /** Intervalle de la requête qui **oblige** le serveur à répondre : c'est elle qui prouve que la liaison vit. */
-    val heartbeatIntervalMs: Long = 5_000
+    val heartbeatIntervalMs: Long = 5_000,
+    /**
+     * Reconnexion automatique (SS-055) : attente avant chaque tentative successive. Le **nombre** de tentatives est celui de la
+     * liste (bornée), et l'attente ne dépasse jamais le dernier élément : 1, 2, 4, 8, 15 puis 30 s, soit 8 tentatives sur
+     * environ 2 minutes 30, après quoi la reconnexion est abandonnée. Vide : pas de reconnexion automatique.
+     */
+    val reconnectDelaysMs: List<Long> = DEFAULT_RECONNECT_DELAYS_MS,
+    /**
+     * Une session qui a tenu au moins ce temps remet le compteur de tentatives à zéro. Une session qui retombe aussitôt
+     * (liaison instable) ne le remet **pas** : sans cela la reconnexion pourrait boucler indéfiniment.
+     */
+    val reconnectStableMs: Long = 30_000
 ) {
     init {
+        require(reconnectDelaysMs.all { it in 1..MAX_RECONNECT_DELAY_MS }) { "délai de reconnexion hors de 1..$MAX_RECONNECT_DELAY_MS ms" }
+        require(reconnectDelaysMs.size <= MAX_RECONNECT_ATTEMPTS) { "trop de tentatives de reconnexion : ${reconnectDelaysMs.size}" }
+        require(reconnectStableMs >= 0) { "durée de stabilité négative" }
         require(connectTimeoutMs > 0 && handshakeTimeoutMs > 0 && readTimeoutMs > 0) { "délais > 0" }
         require(livenessTimeoutMs > readTimeoutMs) { "le délai de silence doit dépasser le réveil de lecture" }
         require(heartbeatIntervalMs >= keepAliveIntervalMs) { "battement de vie plus rapide que le battement Wi-Fi" }
+    }
+
+    companion object {
+        val DEFAULT_RECONNECT_DELAYS_MS: List<Long> = listOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 30_000, 30_000)
+        const val MAX_RECONNECT_DELAY_MS = 5 * 60 * 1_000L
+        const val MAX_RECONNECT_ATTEMPTS = 32
     }
 }
 
@@ -79,8 +99,21 @@ class ConnectionConfig(
  *
  * ## Secrets
  * Le mot de passe arrive en `CharArray`, jamais en `String`. [connect] en prend possession : le tableau est **effacé**
- * dans tous les cas (connexion refusée, échec, succès). Il n'est **pas conservé** pour une reconnexion : [reconnect] en
- * redemande un si le serveur en exigeait un ([reconnectNeedsPassword]). Rien n'est journalisé.
+ * dans tous les cas (connexion refusée, échec, succès). Par défaut il n'est **pas conservé** : [reconnect] en redemande
+ * un si le serveur en exigeait un ([reconnectNeedsPassword]). Rien n'est journalisé.
+ *
+ * **Exception, demandée explicitement** : avec `autoReconnect = true` (SS-055), une **copie** est gardée **en mémoire
+ * seulement** (jamais écrite sur le stockage) pour pouvoir se reconnecter sans l'utilisateur. Elle est **effacée** dès que
+ * [disconnect] est appelé, que la reconnexion est arrêtée ou abandonnée, ou que le fil de session se termine. Chaque
+ * tentative reçoit sa propre copie, effacée par `VncAuthentication`. Voir SECURITY.md.
+ *
+ * ## Reconnexion automatique (SS-055)
+ * Quand une session **établie** est perdue pour une cause passagère ([FailureKind.isTransient]) et que `autoReconnect` est
+ * demandé, le contrôleur passe en [ConnectionState.RECONNECTING], attend ([ConnectionConfig.reconnectDelaysMs], délai
+ * croissant et borné), retente, et ainsi de suite jusqu'à [ConnectionConfig.reconnectDelaysMs] tentatives, puis abandonne
+ * en [ConnectionState.ERROR] ([gaveUpAfter]). Un échec **non passager** (mot de passe refusé...) l'arrête aussitôt ; un
+ * premier échec de connexion, avant toute session établie, n'est **pas** retenté (l'utilisateur est devant l'écran).
+ * [retryNow] saute l'attente, [stopAutoReconnect] renonce, [disconnect] arrête tout.
  *
  * ## Sessions successives
  * Chaque tentative a un numéro de génération. Un ancien thread encore en train de se terminer ne peut plus rien publier
@@ -97,7 +130,7 @@ class ConnectionController(
         fun onStateChanged(state: ConnectionState, failure: ConnectionFailure?)
     }
 
-    private val lock = Any()
+    private val lock = Object() // les attentes de la reconnexion automatique utilisent wait/notify
     private val listeners = CopyOnWriteArrayList<Listener>()
 
     // Tout ce qui suit est protégé par `lock`.
@@ -109,6 +142,11 @@ class ConnectionController(
     private var sessionThread: Thread? = null
     private var lastParams: ConnectionParams? = null
     private var serverWantsPassword = false
+    private var retainedPassword: CharArray? = null
+    private var currentReconnectStatus: ReconnectStatus? = null
+    private var gaveUp = 0
+    private var retryNowRequested = false
+    private var stopAutoRequested = false
 
     private var sessionSender: PointerSender? = null
 
@@ -128,7 +166,10 @@ class ConnectionController(
     val state: ConnectionState
         get() = synchronized(lock) { currentState }
 
-    /** Pourquoi la connexion a échoué ; non nul seulement en état [ConnectionState.ERROR]. */
+    /**
+     * Pourquoi la connexion a échoué ; non nul en état [ConnectionState.ERROR], et en état [ConnectionState.RECONNECTING]
+     * pendant une reconnexion automatique (la cause de la coupure).
+     */
     val failure: ConnectionFailure?
         get() = synchronized(lock) { currentFailure }
 
@@ -139,6 +180,17 @@ class ConnectionController(
     /** Nombre de `FramebufferUpdate` reçus depuis l'établissement de la dernière session. */
     val updateCount: Long
         get() = updates.get()
+
+    /** Reconnexion automatique en cours (attente ou tentative), ou `null` (SS-055). */
+    val reconnectStatus: ReconnectStatus?
+        get() = synchronized(lock) { currentReconnectStatus }
+
+    /** Nombre de tentatives automatiques après lesquelles la reconnexion a été **abandonnée** ; 0 sinon. */
+    val gaveUpAfter: Int
+        get() = synchronized(lock) { gaveUp }
+
+    /** Copie du mot de passe conservé en mémoire pour la reconnexion automatique, ou `null` (tests seulement). */
+    internal fun retainedPasswordForTest(): CharArray? = synchronized(lock) { retainedPassword?.copyOf() }
 
     /** Dernière destination, pour [reconnect]. */
     val lastConnection: ConnectionParams?
@@ -172,23 +224,48 @@ class ConnectionController(
      * Lance une connexion vers [params]. Ne bloque pas.
      *
      * @param password mot de passe VNC, ou `null`/vide si le serveur n'en demande pas ; le tableau est **effacé**.
+     * @param autoReconnect se reconnecter tout seul si la session établie est coupée (SS-055) ; **garde alors une copie du
+     *   mot de passe en mémoire** jusqu'à la fin (voir la description de la classe).
      * @return `false` (et rien n'est fait) si une connexion est déjà en cours ou établie.
      */
-    fun connect(params: ConnectionParams, password: CharArray? = null): Boolean =
-        start(params, password, reconnecting = false)
+    fun connect(params: ConnectionParams, password: CharArray? = null, autoReconnect: Boolean = false): Boolean =
+        start(params, password, reconnecting = false, autoReconnect = autoReconnect)
 
     /**
      * Relance la connexion vers la dernière destination (SS-054), sans redémarrer l'application. Mêmes règles que
      * [connect]. Un mot de passe est nécessaire si [reconnectNeedsPassword].
      * @return `false` si une connexion est en cours ou s'il n'y a pas de dernière destination.
      */
-    fun reconnect(password: CharArray? = null): Boolean {
+    fun reconnect(password: CharArray? = null, autoReconnect: Boolean = false): Boolean {
         val params = synchronized(lock) { lastParams }
         if (params == null) {
             password?.fill('\u0000')
             return false
         }
-        return start(params, password, reconnecting = true)
+        return start(params, password, reconnecting = true, autoReconnect = autoReconnect)
+    }
+
+    /** Saute l'attente de la reconnexion automatique et retente tout de suite. Sans effet hors attente. */
+    fun retryNow() {
+        synchronized(lock) {
+            if (currentState == ConnectionState.RECONNECTING && currentReconnectStatus?.waiting == true) {
+                retryNowRequested = true
+                lock.notifyAll()
+            }
+        }
+    }
+
+    /**
+     * Renonce à la reconnexion automatique : passe en [ConnectionState.ERROR] avec la cause de la coupure (l'écran propose
+     * alors Reconnecter). Sans effet hors reconnexion automatique.
+     */
+    fun stopAutoReconnect() {
+        synchronized(lock) {
+            if (currentState == ConnectionState.RECONNECTING && currentReconnectStatus != null) {
+                stopAutoRequested = true
+                lock.notifyAll()
+            }
+        }
     }
 
     /**
@@ -206,6 +283,10 @@ class ConnectionController(
             sender = sessionSender
             sessionSender = null
             currentSession = null
+            wipeRetainedLocked() // le mot de passe gardé pour la reconnexion ne survit pas à l'arrêt
+            currentReconnectStatus = null
+            gaveUp = 0
+            lock.notifyAll() // réveille une attente de reconnexion : elle constate le changement de génération
             notify = currentState != ConnectionState.DISCONNECTED
             currentState = ConnectionState.DISCONNECTED
             currentFailure = null
@@ -224,7 +305,7 @@ class ConnectionController(
 
     // ------------------------------------------------------------------ lancement
 
-    private fun start(params: ConnectionParams, password: CharArray?, reconnecting: Boolean): Boolean {
+    private fun start(params: ConnectionParams, password: CharArray?, reconnecting: Boolean, autoReconnect: Boolean): Boolean {
         val gen: Long
         synchronized(lock) {
             if (!currentState.canStartConnection) {
@@ -238,11 +319,19 @@ class ConnectionController(
             serverWantsPassword = false // redécouvert à la négociation : le nouveau serveur n'est peut-être pas le même
             updates.set(0)
             currentFailure = null
+            currentReconnectStatus = null
+            gaveUp = 0
+            retryNowRequested = false
+            stopAutoRequested = false
+            wipeRetainedLocked()
+            // Copie gardée en mémoire pour se reconnecter sans l'utilisateur : seulement s'il y a un mot de passe et que la
+            // reconnexion automatique est demandée. Chaque tentative en reçoit sa propre copie.
+            if (autoReconnect && password != null && password.isNotEmpty()) retainedPassword = password.copyOf()
         }
         // L'état est publié avant le démarrage du thread : l'appelant le voit déjà en revenant.
         publish(gen, if (reconnecting) ConnectionState.RECONNECTING else ConnectionState.CONNECTING, null)
 
-        val thread = Thread({ run(gen, params, password) }, THREAD_NAME)
+        val thread = Thread({ runChain(gen, params, password, autoReconnect) }, THREAD_NAME)
         thread.isDaemon = true
         synchronized(lock) { sessionThread = thread }
         thread.start()
@@ -251,14 +340,102 @@ class ConnectionController(
 
     // ------------------------------------------------------------------ thread de session
 
-    private fun run(gen: Long, params: ConnectionParams, password: CharArray?) {
+    /** Résultat d'une tentative : l'échec (ou `null` si annulée), et combien de temps la session a tenu. */
+    private class Outcome(val failure: ConnectionFailure?, val wasConnected: Boolean, val connectedMs: Long)
+
+    /**
+     * Boucle de la connexion (SS-054) et de la **reconnexion automatique** (SS-055) : une tentative, puis, si elle échoue pour
+     * une cause passagère après avoir été établie, l'attente et une nouvelle tentative, dans la limite de
+     * [ConnectionConfig.reconnectDelaysMs]. Sans reconnexion automatique, une seule tentative.
+     */
+    private fun runChain(gen: Long, params: ConnectionParams, initialPassword: CharArray?, auto: Boolean) {
+        var first = initialPassword
+        var inOutage = false
+        var failedAttempts = 0
+        val delays = config.reconnectDelaysMs
+        try {
+            while (true) {
+                val password = first ?: retainedCopy()
+                first = null
+                val outcome = attemptOnce(gen, params, password)
+                if (!isCurrent(gen)) return // disconnect() : plus rien à publier
+                val failure = outcome.failure ?: return
+
+                if (outcome.wasConnected && outcome.connectedMs >= config.reconnectStableMs) failedAttempts = 0
+                val retry = auto && delays.isNotEmpty() && failure.kind.isTransient && (inOutage || outcome.wasConnected)
+                if (!retry) {
+                    giveUp(gen, failure, 0)
+                    return
+                }
+                inOutage = true
+                failedAttempts++
+                if (failedAttempts > delays.size) {
+                    giveUp(gen, failure, delays.size) // abandon : le compteur est borné
+                    return
+                }
+                val delay = delays[failedAttempts - 1]
+                val waiting = ReconnectStatus(failedAttempts, delays.size, delay, System.nanoTime(), waiting = true)
+                if (!publish(gen, ConnectionState.RECONNECTING, failure) { currentReconnectStatus = waiting }) return
+                if (!waitBeforeRetry(gen, delay)) {
+                    if (isCurrent(gen)) giveUp(gen, failure, 0) // arrêtée par l'utilisateur : ERROR avec la cause
+                    return
+                }
+                val attempting = ReconnectStatus(failedAttempts, delays.size, delay, System.nanoTime(), waiting = false)
+                if (!publish(gen, ConnectionState.RECONNECTING, failure) { currentReconnectStatus = attempting }) return
+            }
+        } finally {
+            synchronized(lock) { if (generation == gen) wipeRetainedLocked() } // fin de la chaîne : plus de mot de passe gardé
+        }
+    }
+
+    /** Publie l'échec définitif et efface le mot de passe gardé. */
+    private fun giveUp(gen: Long, failure: ConnectionFailure, attempts: Int) {
+        publish(gen, ConnectionState.ERROR, failure) {
+            currentReconnectStatus = null
+            gaveUp = attempts
+            wipeRetainedLocked()
+        }
+    }
+
+    /**
+     * Attend [delayMs] avant la tentative suivante, interruptible : [disconnect], [retryNow] et [stopAutoReconnect] réveillent
+     * l'attente.
+     * @return `true` pour tenter maintenant ; `false` si la reconnexion est annulée ou arrêtée.
+     */
+    private fun waitBeforeRetry(gen: Long, delayMs: Long): Boolean {
+        val deadline = System.nanoTime() + delayMs * 1_000_000L
+        synchronized(lock) {
+            try {
+                while (generation == gen && !stopAutoRequested && !retryNowRequested) {
+                    val remainingMs = (deadline - System.nanoTime()) / 1_000_000L
+                    if (remainingMs <= 0) break
+                    lock.wait(remainingMs)
+                }
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+            retryNowRequested = false
+            return generation == gen && !stopAutoRequested
+        }
+    }
+
+    private fun retainedCopy(): CharArray? = synchronized(lock) { retainedPassword?.copyOf() }
+
+    /** Efface et oublie le mot de passe gardé pour la reconnexion. Appelé avec [lock] tenu. */
+    private fun wipeRetainedLocked() {
+        retainedPassword?.fill('\u0000')
+        retainedPassword = null
+    }
+
+    /** Une tentative de connexion complète : ouverture, négociation, puis session jusqu'à sa fin. */
+    private fun attemptOnce(gen: Long, params: ConnectionParams, password: CharArray?): Outcome {
         val passwordGiven = password != null && password.isNotEmpty()
         val socket = try {
             socketFactory()
         } catch (t: Throwable) {
             password?.fill('\u0000')
-            fail(gen, ConnectionFailure.classify(t, Phase.CONNECTING, passwordGiven))
-            return
+            return Outcome(ConnectionFailure.classify(t, Phase.CONNECTING, passwordGiven), false, 0)
         }
         val registered = synchronized(lock) {
             if (generation == gen) {
@@ -271,13 +448,15 @@ class ConnectionController(
         if (!registered) { // disconnect() est passé entre-temps
             socket.close()
             password?.fill('\u0000')
-            return
+            return Outcome(null, false, 0)
         }
 
         var phase = Phase.CONNECTING
         var vnc: VncAuthentication? = null
         var keepAlive: KeepAlive? = null
         var sender: PointerSender? = null
+        var connectedAtNs = 0L
+        var failure: ConnectionFailure? = null
         try {
             socket.connect(params.host, params.port)
             phase = Phase.NEGOTIATING
@@ -303,16 +482,17 @@ class ConnectionController(
             val reader = ServerMessageReader(socket, framebuffer, PixelFormat.XRGB_8888_LE, listener = forwarder(gen))
             phase = Phase.RUNNING
             sender = PointerSender.forSocket(socket)
-            if (!establish(gen, info, sender)) return // annulé pendant la négociation
+            updates.set(0) // compteur de la nouvelle session
+            if (!establish(gen, info, sender)) return Outcome(null, false, 0) // annulé pendant la négociation
+            connectedAtNs = System.nanoTime()
 
             keepAlive = startKeepAlive(socket)
             readLoop(gen, socket, reader, framebuffer)
         } catch (t: Throwable) {
-            val failure = ConnectionFailure.classify(t, phase, passwordGiven)
+            failure = ConnectionFailure.classify(t, phase, passwordGiven)
             if (failure.kind == FailureKind.AUTH_FAILED || failure.kind == FailureKind.PASSWORD_REQUIRED) {
                 markServerWantsPassword(gen)
             }
-            fail(gen, failure)
         } finally {
             keepAlive?.stop()
             sender?.stop()
@@ -324,6 +504,8 @@ class ConnectionController(
                 if (sessionSender === sender) sessionSender = null
             }
         }
+        val connectedMs = if (connectedAtNs == 0L) 0L else (System.nanoTime() - connectedAtNs) / 1_000_000L
+        return Outcome(failure, connectedAtNs != 0L, connectedMs)
     }
 
     /** Envoie la configuration de la session : format de pixels imposé, encodages, première image complète. */
@@ -344,6 +526,8 @@ class ConnectionController(
     private fun establish(gen: Long, info: SessionInfo, sender: PointerSender): Boolean =
         publish(gen, ConnectionState.CONNECTED, null) {
             currentSession = info
+            currentReconnectStatus = null
+            gaveUp = 0
             sessionSender = sender
             sender.start() // ne bloque pas : démarre seulement le thread d'envoi
         }
@@ -429,10 +613,6 @@ class ConnectionController(
         }
         notifyListeners(next, failure)
         return true
-    }
-
-    private fun fail(gen: Long, failure: ConnectionFailure) {
-        publish(gen, ConnectionState.ERROR, failure) // l'envoyeur de la session est arrêté par le `finally` de run()
     }
 
     private fun notifyListeners(state: ConnectionState, failure: ConnectionFailure?) {

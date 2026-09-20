@@ -71,6 +71,34 @@ enum class FailureKind {
 }
 
 /**
+ * `true` si l'échec peut disparaître tout seul et mérite une **nouvelle tentative automatique** (SS-055) : réseau ou PC
+ * momentanément injoignable, connexion coupée, serveur qui redémarre, ancienne connexion que le serveur n'a pas encore
+ * libérée (refus). `false` pour tout ce qu'une nouvelle tentative identique ne changerait pas : mot de passe absent, faux ou
+ * invalide, ce n'est pas un serveur VNC, version ou authentification non prises en charge, écran trop grand, données
+ * incohérentes, erreur locale.
+ */
+val FailureKind.isTransient: Boolean
+    get() = when (this) {
+        FailureKind.UNKNOWN_HOST, // le DNS échoue quand le Wi-Fi est coupé
+        FailureKind.CONNECT_TIMEOUT,
+        FailureKind.CONNECTION_REFUSED, // le serveur redémarre
+        FailureKind.NETWORK_UNREACHABLE,
+        FailureKind.SERVER_REJECTED, // l'ancienne connexion n'est pas encore libérée côté serveur
+        FailureKind.HANDSHAKE_TIMEOUT,
+        FailureKind.CONNECTION_LOST,
+        FailureKind.NETWORK_LOST -> true
+        FailureKind.NOT_A_VNC_SERVER,
+        FailureKind.UNSUPPORTED_VERSION,
+        FailureKind.PASSWORD_REQUIRED,
+        FailureKind.PASSWORD_INVALID,
+        FailureKind.NO_COMPATIBLE_SECURITY,
+        FailureKind.AUTH_FAILED,
+        FailureKind.UNSUPPORTED_SERVER_SIZE,
+        FailureKind.PROTOCOL_ERROR,
+        FailureKind.LOCAL_ERROR -> false
+    }
+
+/**
  * Pourquoi une connexion a échoué. Ne contient **jamais** de secret ni d'octets bruts du serveur ; la seule chaîne du
  * serveur, [serverReason], a été assainie (ASCII imprimable, longueur bornée) par la couche protocole.
  *

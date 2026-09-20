@@ -117,7 +117,7 @@ Connexion, négociation, auth, timeout, réseau coupé. *(Fait : `ConnectionStat
 Pas de redémarrage de l'application. *(Fait : `ConnectionController`, bouton Reconnecter. Le mot de passe n'étant pas conservé, il est redemandé si le serveur en exigeait un. Branche `KeepAlive`, `FramebufferUpdateRequest`, rendu et entrées sur la connexion réelle : SS-027, SS-031, SS-040 à SS-044, SS-064.)*
 
 ### SS-055 — Reconnexion automatique — P2
-Backoff borné, désactivable.
+Backoff borné, désactivable. *(Fait : `ConnectionController` (boucle de reconnexion, `retryNow`, `stopAutoReconnect`), `ReconnectStatus`, `FailureKind.isTransient`, `ConnectionSettings`, case de l'écran de connexion, panneau avec compte à rebours. Délais 1, 2, 4, 8, 15, 30, 30, 30 s puis abandon. **Garde une copie du mot de passe en mémoire** (jamais sur le stockage) tant qu'elle est active : décision à confirmer, voir SECURITY.md. Cochée par défaut.)*
 
 ## Epic E6 — Performance
 
