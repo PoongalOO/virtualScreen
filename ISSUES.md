@@ -76,7 +76,7 @@ Masquer au maximum le chrome système sans bloquer la sortie de l'application.
 ## Epic E4 — Entrées
 
 ### SS-040 — Envoyer PointerEvent — P0
-Coordonnées exactes et état bouton.
+Coordonnées exactes et état bouton. *(Fait : `ClientMessages.pointerEvent`, `PointerMapper`, `PointerSender` ; le branchement à la vraie connexion est SS-054.)*
 
 ### SS-041 — Tap = clic gauche — P0
 Down/up fiables sans double événement. **À prendre en compte (mesuré en SS-034) :** sur Android 4.2, quand la barre système est masquée, le premier toucher qui la fait réapparaître n'est pas transmis à l'application ; voir ARCHITECTURE.md, « Mode immersif ».

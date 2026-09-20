@@ -185,6 +185,9 @@ class RemoteSurfaceView @JvmOverloads constructor(
         return true
     }
 
+    /** Requis par l'accessibilité : `TouchInput` l'appelle quand un tap est reconnu (aucun écouteur de clic ici). */
+    override fun performClick(): Boolean = super.performClick()
+
     override fun surfaceCreated(holder: SurfaceHolder) {
         synchronized(renderLock) {
             surfaceReady = true

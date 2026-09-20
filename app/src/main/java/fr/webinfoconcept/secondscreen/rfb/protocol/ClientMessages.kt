@@ -12,6 +12,10 @@ package fr.webinfoconcept.secondscreen.rfb.protocol
  *
  * `FramebufferUpdateRequest` est envoyé tout au long de la session (SS-027), pas seulement au début.
  *
+ * `PointerEvent` (SS-040) : U8 type = 5, U8 masque des boutons, U16 x, U16 y -> 6 octets. Les coordonnées sont celles
+ * du **framebuffer distant** (pas de l'écran de la tablette) ; le masque dit quels boutons sont enfoncés *à cet instant*
+ * (bit 0 = gauche, bit 1 = milieu, bit 2 = droit, bits 3 et 4 = molette haut/bas, voir [PointerButtons]).
+ *
  * Chaque fonction renvoie un tableau neuf, à envoyer avec un **seul** appel
  * `RfbSocket.write(message, 0, message.size)` pour ne jamais entrelacer deux messages.
  * Aucune donnée du serveur n'entre ici : ce sont des messages que le client compose.
@@ -20,9 +24,14 @@ object ClientMessages {
     const val TYPE_SET_PIXEL_FORMAT = 0
     const val TYPE_SET_ENCODINGS = 2
     const val TYPE_FRAMEBUFFER_UPDATE_REQUEST = 3
+    const val TYPE_POINTER_EVENT = 5
 
     const val SET_PIXEL_FORMAT_LENGTH = 4 + PixelFormat.WIRE_SIZE
     const val FRAMEBUFFER_UPDATE_REQUEST_LENGTH = 10
+    const val POINTER_EVENT_LENGTH = 6
+
+    /** Longueur de [leftClick] : trois `PointerEvent`. */
+    const val LEFT_CLICK_LENGTH = 3 * POINTER_EVENT_LENGTH
 
     /**
      * Intervalle du message de battement, en ms (voir [keepAliveRequest]). Mesuré : jusqu'à 400 ms la latence
@@ -86,6 +95,45 @@ object ClientMessages {
     fun keepAliveRequest(): ByteArray = framebufferUpdateRequest(incremental = true, x = 0, y = 0, w = 1, h = 1)
 
     /**
+     * `PointerEvent` (SS-040) : position du pointeur ([x], [y], en pixels du framebuffer distant) et état des
+     * boutons ([buttonMask], voir [PointerButtons]). L'état est **absolu** : le serveur déduit les appuis et
+     * relâchements en comparant au masque précédent. Un même message sert donc à déplacer (masque inchangé), appuyer
+     * (bit à 1) et relâcher (bit à 0).
+     *
+     * @throws IllegalArgumentException [x] ou [y] hors 0..65535, ou [buttonMask] hors 0..255.
+     */
+    fun pointerEvent(buttonMask: Int, x: Int, y: Int): ByteArray {
+        val message = ByteArray(POINTER_EVENT_LENGTH)
+        writePointerEvent(message, 0, buttonMask, x, y)
+        return message
+    }
+
+    /**
+     * Clic gauche complet en **un seul message** de [LEFT_CLICK_LENGTH] octets, à envoyer avec un seul `write` :
+     * ```text
+     * (masque 0, x, y)   le pointeur arrive sans bouton (survol)
+     * (masque 1, x, y)   appui
+     * (masque 0, x, y)   relâchement
+     * ```
+     * Un seul tableau garantit que l'appui n'est jamais envoyé sans son relâchement (bouton coincé côté serveur) ni
+     * entrelacé avec un autre message.
+     */
+    fun leftClick(x: Int, y: Int): ByteArray {
+        val message = ByteArray(LEFT_CLICK_LENGTH)
+        writePointerEvent(message, 0, 0, x, y)
+        writePointerEvent(message, POINTER_EVENT_LENGTH, PointerButtons.LEFT, x, y)
+        writePointerEvent(message, 2 * POINTER_EVENT_LENGTH, 0, x, y)
+        return message
+    }
+
+    private fun writePointerEvent(message: ByteArray, offset: Int, buttonMask: Int, x: Int, y: Int) {
+        message.putU8At(offset, TYPE_POINTER_EVENT)
+        message.putU8At(offset + 1, buttonMask)
+        message.putU16At(offset + 2, x)
+        message.putU16At(offset + 4, y)
+    }
+
+    /**
      * `SetEncodings` : liste des encodages acceptés, par ordre de préférence. Par défaut
      * [Encoding.ADVERTISED]. Les pseudo-encodages (négatifs) sont admis : ils s'écrivent en S32.
      *
@@ -102,4 +150,13 @@ object ClientMessages {
         encodings.forEachIndexed { i, encoding -> message.putS32At(4 + 4 * i, encoding) }
         return message
     }
+}
+
+/** Bits du masque de boutons d'un `PointerEvent` (SS-040) : bit N-1 = bouton N, comme X11. */
+object PointerButtons {
+    const val LEFT = 1
+    const val MIDDLE = 2
+    const val RIGHT = 4
+    const val WHEEL_UP = 8
+    const val WHEEL_DOWN = 16
 }

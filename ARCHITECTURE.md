@@ -34,6 +34,7 @@ UI
 
 - **UI thread** : Activity, SurfaceView, événements utilisateur.
 - **I/O worker** : socket, handshake, lecture des messages RFB.
+- **Envoi des entrées** (`secondscreen-input`) : écrit les `PointerEvent` ; le thread UI ne fait que les poser dans une file bornée.
 - **Rendu** : privilégier une stratégie simple SurfaceView ; mesurer avant d'ajouter un thread supplémentaire.
 
 Aucune lecture bloquante de socket sur le thread UI.
@@ -100,6 +101,37 @@ Conséquence pour SS-041 (tap = clic) et SS-052 (barre de commandes) : la décis
 | Toucher puis Retour sur la barre réapparue / touche Retour barre cachée / Accueil | l'application se ferme ou passe en arrière-plan à chaque fois |
 
 **Non vérifié** : le retournement de la tablette d'un paysage à l'autre. `sensorLandscape` suit le capteur et ignore le réglage de rotation forcée : mon essai avec `user_rotation` n'a jamais changé l'orientation, il n'établit donc rien.
+
+## Entrées (SS-040, SS-041)
+
+```text
+thread UI :  MotionEvent -> TouchInput -> TapDetector -> PointerActions -> PointerSender.send() (file bornée, non bloquant)
+                                                          (PointerMapper : pixel de la vue -> pixel du framebuffer)
+thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par appel)
+```
+
+- **`PointerEvent`** (`ClientMessages.pointerEvent`, 6 octets : type 5, masque des boutons, x et y en U16 big-endian) : l'état des boutons est **absolu**, le serveur déduit appuis et relâchements en le comparant au précédent. Les valeurs hors plage sont refusées, jamais tronquées.
+- **Coordonnées** (`PointerMapper`) : le rendu est 1:1 ancré en (0, 0), donc `pixel = floor(coordonnée)` (arrondir au plus proche décalerait la cible d'un pixel une fois sur deux). Un toucher hors du framebuffer, ou non fini, n'est **pas** envoyé (pas de clic sur le pixel du bord). SS-033 (letterbox) devra ajouter ici décalage et rapport.
+- **Tap = clic gauche** (`TapDetector`) : le clic n'est émis qu'**au relâchement**, jamais à l'appui, afin qu'un appui qui devient un geste ne produise pas de clic gauche parasite. Pas de clic si le doigt bouge de plus du seuil de la plateforme (`scaledTouchSlop`), si le contact dure plus de 500 ms (délai d'appui long d'Android : la place de SS-043), si un deuxième doigt se pose (SS-044), ou si le système annule le geste. Un relâchement dupliqué ne clique pas deux fois.
+- **Un clic = un seul message de 18 octets** (`ClientMessages.leftClick` : survol sans bouton, appui, relâchement, au même pixel), écrit en un seul `write` : l'appui n'est jamais envoyé sans son relâchement (bouton coincé côté serveur), ni entrelacé avec le battement Wi-Fi ou un autre message.
+- **`PointerSender`** : aucun accès réseau sur le thread UI. La file est bornée (64) : si la liaison se bloque, `send` refuse des messages **entiers** sans jamais attendre (mémoire bornée) ; une erreur d'écriture arrête l'envoyeur et est signalée une fois ; à l'arrêt, les messages en attente sont abandonnés (un clic tardif serait pire qu'un clic perdu).
+
+**Provisoire** : `RemoteActivity` n'est pas encore reliée à un serveur (SS-054). Elle emprunte le chemin réel jusqu'à la file d'envoi, mais l'écriture finale ne fait que compter les clics ; SS-054 y branchera `PointerSender.forSocket`.
+
+**Conséquence du mode immersif** (voir plus haut) : sur Android 4.2, le premier toucher après chaque remasquage de la barre est perdu, et la barre réapparue intercepte les touchers des 48 lignes du bas pendant 3 s. Ce n'est pas un défaut de l'envoi des entrées, mais l'utilisateur le verra comme un clic manquant : la décision sur le remasquage automatique reste ouverte.
+
+### Vérifié
+
+| Vérification | Résultat |
+|---|---|
+| Vrai serveur TigerVNC (Xtigervnc 1280×800), `xev` comme témoin indépendant, 8 clics dont les coins (0,0) et (1279,799), et 3 clics d'affilée sans pause | **8 appuis et 8 relâchements bouton 1**, positions exactes, aucun événement en trop ; 2 touchers hors cadre : aucun événement |
+| GT-P5110, vrais `MotionEvent` (`adb shell input`) : tap | **1 clic**, coordonnées exactes, écrit par le thread `secondscreen-input` (barre non interposée) |
+| GT-P5110 : balayage court (60 px) et long (200 px) | **0 clic** |
+| GT-P5110 : tap, balayage, tap | 2 clics (celui du balayage n'existe pas) |
+| GT-P5110 : deux taps simultanés au même point | 2 clics |
+| Barre système réapparue : toucher dans les 48 lignes du bas | intercepté par la barre, 0 clic (limite d'Android 4.2 ci-dessus) |
+
+**Non vérifié sur l'appareil** : l'appui long et le deuxième doigt. `input` d'Android 4.2 ne sait ni tenir un appui ni simuler deux doigts ; ces cas ne sont couverts que par les tests unitaires de `TapDetector` (durée, second doigt, annulation), pas par de vrais `MotionEvent`. Rien n'a non plus été mesuré côté serveur depuis la tablette : la chaîne serveur a été vérifiée depuis la JVM avec le même code, la chaîne tactile depuis la tablette sans serveur.
 
 ## Réseau (SS-064)
 
