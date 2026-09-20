@@ -20,6 +20,23 @@ Le serveur envoie 12 octets ASCII `RFB xxx.yyy\n` ; le client répond avec la pl
 
 Une bannière qui ne respecte pas strictement le format (préfixe, chiffres ASCII, séparateur, `\n`) produit `InvalidBanner` — cas typique : port qui n'est pas un serveur VNC. Le contenu reçu n'est jamais recopié dans les messages d'erreur.
 
+### Négociation de sécurité (SS-012)
+
+Le comportement diffère selon la version négociée (RFC 6143 §7.1.2) :
+
+| | RFB 3.8 | RFB 3.3 |
+|---|---|---|
+| Types proposés | U8 `n` puis `n` U8 ; `n = 0` = refus + raison | un seul U32 imposé ; `0` = refus + raison |
+| Choix du client | 1 octet (premier type de **sa** liste de préférence que le serveur propose) | aucun |
+| `SecurityResult` (U32, 0 = OK, 1 = échec) | toujours, y compris pour `None` | sauf pour `None` |
+| Raison en cas d'échec | oui (U32 longueur + texte) | non |
+
+Types gérés : `None` (1) ; VNC Authentication (2) s'ajoute en implémentant `SecurityHandler` (SS-014), sans modifier la négociation. Les autres types (Tight, TLS, etc.) donnent `NoSupportedSecurityType` avec la liste proposée.
+
+Le serveur est une entrée non fiable : le texte de raison est lu sur **256 octets au plus** quelle que soit la longueur annoncée (U32), puis assaini (ASCII imprimable, le reste devient `?`). Il est exposé dans `reason` des erreurs `ConnectionRejected` / `AuthenticationFailed`, jamais dans leur message. Un serveur qui coupe sans envoyer de raison donne une raison vide plutôt qu'une erreur réseau. Toute erreur ferme la socket.
+
+`None` ne doit servir que sur un LAN de développement de confiance (voir SECURITY.md).
+
 ## Séquence
 
 ```text
