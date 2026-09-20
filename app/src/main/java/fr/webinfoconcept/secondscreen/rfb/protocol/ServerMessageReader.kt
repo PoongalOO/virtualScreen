@@ -1,6 +1,8 @@
 package fr.webinfoconcept.secondscreen.rfb.protocol
 
+import fr.webinfoconcept.secondscreen.rfb.encoding.CopyRectDecoder
 import fr.webinfoconcept.secondscreen.rfb.encoding.EncodingDecoder
+import fr.webinfoconcept.secondscreen.rfb.encoding.HextileDecoder
 import fr.webinfoconcept.secondscreen.rfb.encoding.RawDecoder
 import fr.webinfoconcept.secondscreen.rfb.framebuffer.Framebuffer
 import fr.webinfoconcept.secondscreen.rfb.transport.RfbSocket
@@ -37,15 +39,16 @@ import java.io.IOException
  *
  * Non thread-safe : utilisé par le seul thread I/O. Bloquant : jamais sur le thread UI.
  *
- * @param decoders décodeurs disponibles ; au plus un par encodage. Par défaut RAW seul, ce qui
- *   correspond à [Encoding.ADVERTISED] : on ne doit annoncer que ce qu'on sait décoder.
+ * @param decoders décodeurs disponibles ; au plus un par encodage. Par défaut ceux de
+ *   [defaultDecoders] (Hextile, CopyRect, RAW), ce qui correspond à [Encoding.ADVERTISED] : on ne
+ *   doit annoncer que ce qu'on sait décoder (un test le vérifie).
  * @param listener notifié après chaque rectangle décodé.
  */
 class ServerMessageReader(
     private val socket: RfbSocket,
     private val framebuffer: Framebuffer,
     pixelFormat: PixelFormat = PixelFormat.XRGB_8888_LE,
-    decoders: List<EncodingDecoder> = listOf(RawDecoder(pixelFormat, framebuffer.width)),
+    decoders: List<EncodingDecoder> = defaultDecoders(pixelFormat, framebuffer.width),
     private val listener: RectangleListener? = null
 ) {
     private val decoderList: Array<EncodingDecoder> = decoders.toTypedArray()
@@ -125,6 +128,16 @@ class ServerMessageReader(
     }
 
     companion object {
+        /**
+         * Les décodeurs de tous les encodages annoncés dans [Encoding.ADVERTISED] : Hextile (SS-026),
+         * CopyRect (SS-025) et RAW (SS-024). Ajouter un encodage à `ADVERTISED` exige d'ajouter ici son décodeur.
+         */
+        fun defaultDecoders(pixelFormat: PixelFormat, maxWidth: Int): List<EncodingDecoder> = listOf(
+            HextileDecoder(pixelFormat),
+            CopyRectDecoder(),
+            RawDecoder(pixelFormat, maxWidth)
+        )
+
         const val TYPE_FRAMEBUFFER_UPDATE = 0
         const val TYPE_BELL = 2
         const val TYPE_SERVER_CUT_TEXT = 3

@@ -124,11 +124,11 @@ Un `RectangleListener` optionnel est notifié après chaque rectangle décodé (
 
 | Encodage | Numéro | Décodeur | Annoncé |
 |---|---|---|---|
-| RAW | 0 | SS-024 | **oui** |
-| CopyRect | 1 | SS-025 | non (à ajouter avec son décodeur) |
-| Hextile | 5 | SS-026 | non (à ajouter avec son décodeur) |
+| Hextile | 5 | SS-026 | **oui** (1er) |
+| CopyRect | 1 | SS-025 | **oui** (2e) |
+| RAW | 0 | SS-024 | **oui** (dernier recours) |
 
-**Règle : un encodage n'est annoncé (`Encoding.ADVERTISED`) que lorsque son décodeur existe et est testé.** Annoncer un encodage non décodable ferait envoyer au serveur des rectangles que le client ne sait pas lire, ce qui coupe la connexion. Les encodages compacts (CopyRect, Hextile) se placent en tête de liste, RAW en dernier : un serveur choisit le premier qu'il sait produire. La liste ne peut être ni vide ni contenir de doublon, et est limitée à 64 entrées.
+**Règle : un encodage n'est annoncé (`Encoding.ADVERTISED`) que lorsque son décodeur existe et est testé.** Annoncer un encodage non décodable ferait envoyer au serveur des rectangles que le client ne sait pas lire, ce qui coupe la connexion. Les encodages compacts (Hextile, CopyRect) se placent en tête de liste, RAW en dernier : un serveur choisit le premier qu'il sait produire. Ajouter un encodage à `Encoding.ADVERTISED` exige d'enregistrer son décodeur dans `ServerMessageReader.defaultDecoders` ; un test vérifie que tout ce qui est annoncé est décodable. La liste ne peut être ni vide ni contenir de doublon, et est limitée à 64 entrées.
 
 ### RAW — P0
 
@@ -145,13 +145,47 @@ Premier encodage. Valider : coordonnées, largeur, hauteur, bytes-per-pixel et t
 
 Copie locale d'une région déjà présente dans le framebuffer.
 
+**Implémentation (SS-025)** : les données d'un rectangle sont 4 octets, `U16 src-x` et `U16 src-y` ; aucun pixel ne circule. C'est l'encodage employé par le serveur pour un défilement ou un déplacement de fenêtre.
+
+- **Chevauchement** : source et destination peuvent se chevaucher (défilement d'un terminal). `Framebuffer.copyRect` se comporte comme un `memmove` : si la destination est plus bas que la source (`dstY > srcY`) les lignes sont copiées **de bas en haut**, sinon de haut en bas ; chaque ligne par `System.arraycopy`, sûr même si ses deux plages se chevauchent. Sans buffer temporaire ni allocation. Un test compare le résultat à un oracle « copie via tampon temporaire » sur 6 000 rectangles aléatoires, et démontre qu'une copie naïve toujours de haut en bas corrompt l'image.
+- **Ordre** : les rectangles d'un `FramebufferUpdate` s'appliquent dans l'ordre ; la source d'un CopyRect est le framebuffer **à ce moment-là**, rectangles précédents de la même mise à jour inclus.
+- **Source non fiable** : `src-x`/`src-y` viennent du réseau. La source **et** la destination sont validées avant la moindre écriture (`RectangleOutOfBounds`, avec les coordonnées de la source si c'est elle la fautive). Les 4 octets sont toujours lus (pour rester aligné) avant de valider la source ; rien n'est lu si la destination est hors écran.
+
 ### Hextile — P1
 
 Décodage par tuiles de 16×16. Ajouter des tests unitaires couvrant toutes les combinaisons de sous-encodage prises en charge.
 
+**Implémentation (SS-026)** : le rectangle est découpé en tuiles de 16×16, de gauche à droite puis de haut en bas ; celles du bord droit et du bas sont plus petites (`w mod 16`, `h mod 16`), et les tuiles se comptent **depuis l'origine du rectangle**, pas de l'écran. Chaque tuile commence par un octet de sous-encodage :
+
+| Bit | Nom | Effet |
+|---|---|---|
+| 1 | Raw | la tuile est `w × h` pixels bruts ; tous les autres bits sont ignorés |
+| 2 | BackgroundSpecified | un pixel suit : nouvelle couleur de fond |
+| 4 | ForegroundSpecified | un pixel suit : nouvelle couleur de premier plan |
+| 8 | AnySubrects | un octet suit : nombre de sous-rectangles (0–255) |
+| 16 | SubrectsColoured | chaque sous-rectangle est précédé de son propre pixel |
+
+Ordre des données d'une tuile non brute : `[fond] [premier plan] [nombre de sous-rectangles]` puis les sous-rectangles ; un sous-rectangle est `[pixel si coloré] U8 (x << 4 | y) U8 ((w-1) << 4 | (h-1))`. La tuile est d'abord remplie avec le fond, puis les sous-rectangles sont dessinés dans l'ordre (le dernier gagne en cas de recouvrement).
+
+- **État entre tuiles** : le fond et le premier plan **persistent d'une tuile à l'autre** dans un rectangle (une tuile sans BackgroundSpecified réutilise le fond de la précédente, un masque à 0 est donc une tuile unie réutilisée). Une tuile Raw ne les modifie pas. Ils valent noir opaque au début de chaque rectangle : la spec impose que la première tuile non brute précise son fond, un serveur qui l'omet obtient ce noir déterministe plutôt qu'un refus. Si SubrectsColoured et ForegroundSpecified sont tous deux présents (interdit), le pixel de premier plan est lu pour rester aligné puis ignoré.
+- **Serveur non fiable** : toute lecture est bornée par tuile (au plus 1 + 1 024 octets en Raw, ou 1 + 9 + 255 × 6 octets), donc jamais proportionnelle à une valeur du réseau au-delà de ces bornes fixes. Un sous-rectangle qui **sort de sa tuile** est refusé (`InvalidHextileTile`) : un serveur ne peut pas écrire hors de la tuile en cours. Les bits 5 à 7 du sous-encodage sont indéfinis et révèlent en pratique un flux désaligné : ils sont refusés (sauf avec Raw, où la spec dit que le reste est ignoré).
+- **Sans allocation** par rectangle ni par tuile : quatre buffers de taille fixe alloués à la construction.
+- **Validation** : outre les tests par sous-encodage, la conformité a été vérifiée contre l'encodeur de **TigerVNC** (voir « Validation face à un serveur réel »).
+
 ### ZRLE/Tight — P3
 
 Non nécessaires tant que les mesures ne montrent pas que RAW/Hextile limitent l'usage réel.
+
+### Validation face à un serveur réel (SS-025, SS-026)
+
+Les tests unitaires reposent sur une lecture de la spec faite par le même auteur que les décodeurs : si elle était fausse, ils passeraient quand même. Les décodeurs ont donc aussi été confrontés à un **serveur indépendant**, **TigerVNC** (`Xtigervnc`, paquet `tigervnc-standalone-server` de Debian 13 ; numéro de version non relevé) dans un conteneur jetable, sur 1280×800 :
+
+- **Handshake complet** : RFB 3.8, sécurité `None`, `ServerInit` 1280×800. Le format natif annoncé par le serveur est exactement `XRGB_8888_LE` (32 bpp, depth 24, little-endian, décalages 16/8/0), ce qui confirme le choix de SS-021.
+- **Écran statique** : avec RAW seul, Hextile+RAW, CopyRect+RAW et les trois ensemble, l'écran reconstruit a le **même CRC32** que la capture `xwd` du serveur.
+- **Mises à jour incrémentales** pendant le défilement de terminaux : ~250 mises à jour, ~460–540 rectangles **CopyRect** (22 à 26 millions de pixels copiés, avec chevauchement) et ~720–830 rectangles **Hextile** ; l'écran final est **identique au serveur**, sur la JVM du PC comme sur la GT-P5110 par Wi-Fi. Des timeouts à la frontière de message (~20) se sont produits sans fermer la socket.
+- **Le pointeur de souris compte** : sans pseudo-encodage `Cursor` annoncé, le serveur dessine lui-même le curseur dans le framebuffer qu'il envoie. La première comparaison différait de 28 pixels sur 1 024 000, dans une boîte de 7×14 au centre de l'écran (là où est le pointeur) ; avec le curseur masqué côté serveur, les CRC sont devenus strictement identiques. Un client qui annoncera `Cursor` (rendu du pointeur côté client) devra en tenir compte lors d'une comparaison d'écrans.
+
+Reproduire : un conteneur Debian avec `tigervnc-standalone-server`, `xterm` et `x11-xserver-utils` ; `Xtigervnc :1 -geometry 1280x800 -depth 24 -SecurityTypes None -AlwaysShared` ; la vérité serveur est `xwd -root` analysé hors du client. Ne jamais laisser un serveur sans authentification joignable hors d'un LAN de confiance (SECURITY.md).
 
 ## Pixel format
 

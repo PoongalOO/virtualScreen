@@ -276,8 +276,8 @@ class ServerMessageReaderTest {
 
     @Test(timeout = 10_000)
     fun `an encoding without decoder is a typed error and closes the socket`() {
-        // CopyRect, RRE, Hextile, Tight, ZRLE ; pseudo-encodages ; limites du S32.
-        for (encoding in listOf(1, 2, 5, 7, 16, -223, -239, -1, Int.MAX_VALUE, Int.MIN_VALUE)) {
+        // RRE, CoRRE, Tight, zlib, ZRLE (CopyRect et Hextile ont maintenant un décodeur) ; pseudo-encodages ; limites du S32.
+        for (encoding in listOf(2, 4, 7, 8, 16, -223, -239, -1, Int.MAX_VALUE, Int.MIN_VALUE)) {
             LoopbackPair().use { p ->
                 p.send(updateHeader(1) + rectHeader(0, 0, 2, 2, encoding) + ByteArray(16))
 
@@ -293,7 +293,7 @@ class ServerMessageReaderTest {
 
     @Test(timeout = 10_000)
     fun `an unsupported encoding reads no data`() = LoopbackPair(readTimeoutMs = 1_500).use { p ->
-        p.send(updateHeader(1) + rectHeader(0, 0, 2, 2, 5)) // pas de données derrière
+        p.send(updateHeader(1) + rectHeader(0, 0, 2, 2, 16)) // ZRLE : pas de décodeur, pas de données derrière
         val start = System.nanoTime()
 
         assertThrows(RfbProtocolException.UnsupportedEncoding::class.java) {
@@ -349,8 +349,10 @@ class ServerMessageReaderTest {
         val reader = readerFor(p, Framebuffer(20, 10))
 
         for (encoding in Encoding.ADVERTISED) assertTrue("encodage $encoding annoncé sans décodeur", reader.supports(encoding))
-        assertFalse(reader.supports(Encoding.HEXTILE))
-        assertFalse(reader.supports(Encoding.COPY_RECT))
+        assertTrue(reader.supports(Encoding.HEXTILE))
+        assertTrue(reader.supports(Encoding.COPY_RECT))
+        assertTrue(reader.supports(Encoding.RAW))
+        assertFalse(reader.supports(16)) // ZRLE : pas encore, donc pas annoncé
     }
 
     // ------------------------------------------------ rectangles hors écran

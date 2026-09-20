@@ -85,6 +85,14 @@ sealed class RfbProtocolException(message: String) : IOException(message) {
     class UnsupportedEncoding(val encoding: Int) :
         RfbProtocolException("Encodage non supporté ($encoding)")
 
+    /**
+     * Tuile Hextile incohérente : sous-encodage avec des bits non définis, ou sous-rectangle qui sort de
+     * sa tuile. [detail] est un libellé fixe du client, jamais du texte reçu du serveur. Un flux Hextile
+     * désaligné produit très vite l'un de ces cas : la connexion est fermée.
+     */
+    class InvalidHextileTile(val detail: String) :
+        RfbProtocolException("Tuile Hextile invalide ($detail)")
+
     /** Texte du presse-papiers distant (`ServerCutText`) plus long que la limite acceptée. */
     class CutTextTooLong(val announcedLength: Long) :
         RfbProtocolException("Texte du presse-papiers distant trop long ($announcedLength octets)")

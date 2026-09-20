@@ -73,11 +73,12 @@ class ClientMessagesTest {
     // ---------------------------------------------------------- SetEncodings
 
     @Test
-    fun `SetEncodings advertises only RAW for now`() {
-        // Piège volontaire : n'annoncer un encodage que lorsque son décodeur existe (SS-025, SS-026).
-        // Ce test doit être mis à jour en même temps que Encoding.ADVERTISED.
-        assertEquals(listOf(Encoding.RAW), Encoding.ADVERTISED)
-        assertArrayEquals(hex("02 00 0001  00000000"), ClientMessages.setEncodings())
+    fun `SetEncodings advertises exactly the encodings that have a decoder`() {
+        // Piège volontaire : n'annoncer un encodage que lorsque son décodeur existe. Ce test doit être mis à
+        // jour en même temps que Encoding.ADVERTISED et ServerMessageReader.defaultDecoders.
+        // Compacts d'abord, RAW en dernier recours : Hextile (5), CopyRect (1), RAW (0).
+        assertEquals(listOf(Encoding.HEXTILE, Encoding.COPY_RECT, Encoding.RAW), Encoding.ADVERTISED)
+        assertArrayEquals(hex("02 00 0003  00000005  00000001  00000000"), ClientMessages.setEncodings())
     }
 
     @Test

@@ -10,7 +10,7 @@ import java.util.Arrays
  * par ligne : le pixel (x, y) est à l'index `y * width + x`. 1280×800 pèse 4,1 Mio.
  *
  * **Allocation stable** : le tableau est alloué une seule fois à la construction et n'est
- * jamais réalloué ; les mises à jour ([fillRect], [writeRect]) n'allouent rien.
+ * jamais réalloué ; les mises à jour ([fillRect], [writeRect], [copyRect]) n'allouent rien.
  *
  * **Limites** : toute mise à jour est validée **avant** d'écrire le moindre pixel, donc un
  * rectangle refusé ne laisse aucune écriture partielle. Les coordonnées viennent du réseau
@@ -45,7 +45,9 @@ class Framebuffer(val width: Int = NOMINAL_WIDTH, val height: Int = NOMINAL_HEIG
 
     /**
      * `true` si le rectangle (x, y, [w] × [h]) est entièrement dans le framebuffer. Un rectangle
-     * vide (w = 0 ou h = 0) est valide tant que son origine est dans [0, width] × [0, height].
+     * vide (w = 0 ou h = 0) reste soumis aux contrôles : son origine doit être dans
+     * [0, width] × [0, height] **et** sa dimension non nulle doit tenir dans l'écran (un rectangle de
+     * largeur 0 et de hauteur 3 ne peut pas commencer à 2 lignes du bas).
      */
     fun contains(x: Int, y: Int, w: Int, h: Int): Boolean =
         // Soustractions, pas d'additions : w et h sont non négatifs à ce stade, donc
@@ -101,6 +103,38 @@ class Framebuffer(val width: Int = NOMINAL_WIDTH, val height: Int = NOMINAL_HEIG
             System.arraycopy(src, from, pixels, dst, w)
             from += srcStride
             dst += width
+        }
+    }
+
+    /**
+     * Copie le rectangle source ([srcX], [srcY], [w] × [h]) vers ([dstX], [dstY]) **à l'intérieur du
+     * framebuffer**, source et destination pouvant se chevaucher (CopyRect, SS-025). Le résultat est
+     * celui d'un `memmove` : comme si la source avait d'abord été copiée dans un tampon temporaire.
+     *
+     * Sans tampon temporaire ni allocation : on copie les lignes dans l'ordre qui ne détruit jamais une
+     * ligne source avant de l'avoir lue. Si la destination est plus bas que la source (`dstY > srcY`) on
+     * copie de bas en haut, sinon de haut en bas. Chaque ligne est copiée par `System.arraycopy`, sûr même
+     * quand ses deux plages se chevauchent (déplacement horizontal sur une même ligne).
+     *
+     * Les deux rectangles sont validés **avant** d'écrire quoi que ce soit : les coordonnées source viennent
+     * du réseau. Un rectangle vide ne fait rien.
+     *
+     * @throws RfbProtocolException.RectangleOutOfBounds source ou destination hors écran (rien n'est écrit).
+     */
+    fun copyRect(srcX: Int, srcY: Int, w: Int, h: Int, dstX: Int, dstY: Int) {
+        checkRect(srcX, srcY, w, h)
+        checkRect(dstX, dstY, w, h)
+        if (w == 0 || h == 0 || (srcX == dstX && srcY == dstY)) return
+
+        if (dstY > srcY) {
+            // Destination plus bas : les dernières lignes d'abord, sinon on écraserait des lignes encore à lire.
+            for (row in h - 1 downTo 0) {
+                System.arraycopy(pixels, (srcY + row) * width + srcX, pixels, (dstY + row) * width + dstX, w)
+            }
+        } else {
+            for (row in 0 until h) {
+                System.arraycopy(pixels, (srcY + row) * width + srcX, pixels, (dstY + row) * width + dstX, w)
+            }
         }
     }
 
