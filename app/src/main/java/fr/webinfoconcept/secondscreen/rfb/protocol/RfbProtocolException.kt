@@ -65,6 +65,13 @@ sealed class RfbProtocolException(message: String) : IOException(message) {
         RfbProtocolException("Nom du bureau distant trop long ($announcedLength octets)")
 
     /**
+     * Un rectangle reçu du serveur sort du framebuffer (ou a des coordonnées/dimensions négatives).
+     * Ce sont des entiers, pas du texte.
+     */
+    class RectangleOutOfBounds(val x: Int, val y: Int, val width: Int, val height: Int) :
+        RfbProtocolException("Rectangle hors de l'écran distant : ($x,$y) ${width}x$height")
+
+    /**
      * Le chiffrement DES requis par VNC Authentication est indisponible sur cet appareil
      * (aucun fournisseur JCA). Problème local, pas du serveur.
      */

@@ -1,5 +1,6 @@
 package fr.webinfoconcept.secondscreen.rfb.protocol
 
+import fr.webinfoconcept.secondscreen.rfb.framebuffer.Framebuffer
 import fr.webinfoconcept.secondscreen.rfb.transport.RfbSocket
 import java.io.IOException
 
@@ -32,15 +33,11 @@ data class ServerInit(
  * Toute erreur ferme la socket avant d'être relancée.
  */
 object InitExchange {
-    /** Plus grande largeur ou hauteur acceptée. */
-    const val MAX_DIMENSION = 4096
+    /** Plus grande largeur ou hauteur acceptée : celle du [Framebuffer], qui porte le budget mémoire. */
+    const val MAX_DIMENSION = Framebuffer.MAX_DIMENSION
 
-    /**
-     * Plus grande surface acceptée : 1920×1200. Un buffer ARGB_8888 de cette taille pèse
-     * 9,2 Mio ; avec le Bitmap de rendu, ~18 Mio sur un tas applicatif de 48 Mio mesuré sur la
-     * GT-P5110 (SS-003). Le bureau nominal 1280×800 n'en utilise que 44 %.
-     */
-    const val MAX_PIXELS = 1920L * 1200L
+    /** Plus grande surface acceptée (1920×1200) : celle du [Framebuffer], justification mémoire incluse. */
+    const val MAX_PIXELS = Framebuffer.MAX_PIXELS
 
     /** Plus longue longueur annoncée acceptée pour le nom du bureau. */
     const val MAX_NAME_LENGTH = 1024
