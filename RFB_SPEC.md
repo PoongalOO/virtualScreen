@@ -8,6 +8,18 @@ Implémenter le minimum RFB nécessaire à l'usage « deuxième écran », puis 
 
 Support initial : RFB 3.3 et 3.8 si possible. La version réellement utilisée est choisie après lecture de la bannière serveur.
 
+### Négociation (SS-011)
+
+Le serveur envoie 12 octets ASCII `RFB xxx.yyy\n` ; le client répond avec la plus haute version supportée ne dépassant pas celle du serveur :
+
+| Version annoncée par le serveur | Réponse du client |
+|---|---|
+| ≥ 3.8 (dont 3.889 d'Apple, 4.x) | `RFB 003.008\n` |
+| 3.3 à 3.7 | `RFB 003.003\n` (3.7 n'est pas implémenté) |
+| < 3.3 | erreur `UnsupportedVersion`, connexion fermée |
+
+Une bannière qui ne respecte pas strictement le format (préfixe, chiffres ASCII, séparateur, `\n`) produit `InvalidBanner` — cas typique : port qui n'est pas un serveur VNC. Le contenu reçu n'est jamais recopié dans les messages d'erreur.
+
 ## Séquence
 
 ```text
