@@ -114,6 +114,66 @@ class PointerEventTest {
     }
 
     @Test
+    fun `wheel button bits are the X11 buttons 4 to 7`() {
+        assertEquals(1 shl 3, PointerButtons.WHEEL_UP)     // bouton 4
+        assertEquals(1 shl 4, PointerButtons.WHEEL_DOWN)   // bouton 5
+        assertEquals(1 shl 5, PointerButtons.WHEEL_LEFT)   // bouton 6
+        assertEquals(1 shl 6, PointerButtons.WHEEL_RIGHT)  // bouton 7
+    }
+
+    @Test
+    fun `one wheel click is press then release of the wheel button at the same pixel, 12 bytes`() {
+        assertArrayEquals(
+            hex("05 10 0280 0190   05 00 0280 0190"),
+            ClientMessages.wheel(PointerButtons.WHEEL_DOWN, 1, 640, 400)
+        )
+        assertArrayEquals(
+            hex("05 08 0001 0002   05 00 0001 0002"),
+            ClientMessages.wheel(PointerButtons.WHEEL_UP, 1, 1, 2)
+        )
+        assertArrayEquals(hex("05 20 0000 0000   05 00 0000 0000"), ClientMessages.wheel(PointerButtons.WHEEL_LEFT, 1, 0, 0))
+        assertArrayEquals(hex("05 40 04ff 031f   05 00 04ff 031f"), ClientMessages.wheel(PointerButtons.WHEEL_RIGHT, 1, 1279, 799))
+    }
+
+    @Test
+    fun `n wheel clicks are n press-release pairs in one array of 12 n bytes`() {
+        for (n in listOf(1, 2, 5, ClientMessages.MAX_WHEEL_CLICKS)) {
+            val message = ClientMessages.wheel(PointerButtons.WHEEL_DOWN, n, 100, 200)
+            assertEquals(12 * n, message.size)
+            for (i in 0 until n) {
+                assertArrayEquals(hex("05 10 0064 00c8"), message.copyOfRange(12 * i, 12 * i + 6))
+                assertArrayEquals(hex("05 00 0064 00c8"), message.copyOfRange(12 * i + 6, 12 * i + 12))
+            }
+        }
+    }
+
+    @Test
+    fun `wheel never presses an ordinary button and always ends released`() {
+        for (direction in listOf(PointerButtons.WHEEL_UP, PointerButtons.WHEEL_DOWN, PointerButtons.WHEEL_LEFT, PointerButtons.WHEEL_RIGHT)) {
+            val message = ClientMessages.wheel(direction, 7, 3, 4)
+            for (i in message.indices step 6) {
+                val mask = message[i + 1].toInt()
+                assertEquals(5, message[i].toInt())
+                assertEquals("masque de molette ou 0, jamais gauche/milieu/droit", true, mask == 0 || mask == direction)
+                assertEquals(0, mask and (PointerButtons.LEFT or PointerButtons.MIDDLE or PointerButtons.RIGHT))
+            }
+            assertEquals("le dernier message relâche tout", 0, message[message.size - 5].toInt())
+        }
+    }
+
+    @Test
+    fun `wheel refuses a direction that is not a wheel button, a bad count and out-of-range coordinates`() {
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(PointerButtons.LEFT, 1, 0, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(0, 1, 0, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(PointerButtons.WHEEL_UP or PointerButtons.WHEEL_DOWN, 1, 0, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(PointerButtons.WHEEL_UP, 0, 0, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(PointerButtons.WHEEL_UP, -1, 0, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(PointerButtons.WHEEL_UP, ClientMessages.MAX_WHEEL_CLICKS + 1, 0, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(PointerButtons.WHEEL_UP, 1, -1, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.wheel(PointerButtons.WHEEL_UP, 1, 0, 65536) }
+    }
+
+    @Test
     fun `drag start is hover then press in one 12-byte array, without release`() {
         val start = ClientMessages.dragStart(640, 400)
 

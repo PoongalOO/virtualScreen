@@ -88,7 +88,7 @@ Déplacement avec bouton maintenu. *(Fait : `TouchGestureDetector` + `DragListen
 Seuil configurable et absence de clic gauche parasite. *(Fait : `LongPress`, `TouchGestureDetector`, `ClientMessages.rightClick`, `PointerActions.rightClick`. Seuil = celui de la plateforme ; pas encore de réglage propre à l'application. Pas de retour au doigt sur la GT-P5110, sans vibreur : voir ARCHITECTURE.md.)*
 
 ### SS-044 — Scroll deux doigts — P1
-Conversion en événements de molette VNC.
+Conversion en événements de molette VNC. *(Fait : `Scroll`, `ScrollListener`, `TouchGestureDetector.onTwoFingersDown/Move`, `ClientMessages.wheel`, `PointerActions`. Pas de 40 px et sens naturel par défaut, non ajustés sur une vraie application ; pas de réglage utilisateur ni d'inertie.)*
 
 ### SS-045 — Mode touchpad relatif — P2
 Sensibilité réglable.

@@ -16,6 +16,49 @@ interface DragListener {
     fun onDragEnd(x: Float, y: Float)
 }
 
+/**
+ * Reçoit le défilement à deux doigts reconnu par [TouchGestureDetector] (SS-044). Les crans sont **signés** :
+ * `clicksY > 0` = molette vers le bas (le contenu défile vers le bas de la page), `clicksY < 0` = vers le haut,
+ * `clicksX > 0` = vers la droite, `clicksX < 0` = vers la gauche.
+ */
+interface ScrollListener {
+    /** Deux doigts sont posés, leur centre est en ([x], [y]) (pixels de la vue) : le défilement commence là. */
+    fun onScrollStart(x: Float, y: Float)
+
+    /** Le centre des doigts a parcouru assez de chemin pour [clicksX] et [clicksY] crans (un seul des deux est non nul). */
+    fun onScroll(clicksX: Int, clicksY: Int)
+}
+
+/**
+ * Réglage du **défilement à deux doigts** (SS-044).
+ *
+ * @param stepPx chemin du centre des deux doigts pour un cran de molette, en pixels de la vue, de [MIN_STEP_PX] à
+ *   [MAX_STEP_PX]. Plus il est petit, plus le défilement est rapide. [DEFAULT_STEP_PX] est un premier réglage **non
+ *   ajusté sur une vraie application distante** ; voir ARCHITECTURE.md.
+ * @param natural `true` (défaut) : le contenu **suit les doigts**, comme sur un téléphone (doigts vers le haut =
+ *   molette vers le bas). `false` : sens d'une molette de souris (doigts vers le haut = molette vers le haut).
+ */
+class Scroll(
+    val listener: ScrollListener,
+    val stepPx: Float = DEFAULT_STEP_PX,
+    val natural: Boolean = true
+) {
+    init {
+        require(stepPx >= MIN_STEP_PX && stepPx <= MAX_STEP_PX) {
+            "pas de défilement hors de $MIN_STEP_PX..$MAX_STEP_PX px : $stepPx"
+        }
+    }
+
+    companion object {
+        const val DEFAULT_STEP_PX = 40f
+        const val MIN_STEP_PX = 8f
+        const val MAX_STEP_PX = 400f
+
+        /** Crans maximum pour un seul événement tactile : un saut du capteur ne doit pas inonder le serveur. */
+        const val MAX_CLICKS_PER_EVENT = 8
+    }
+}
+
 /** Programme une action différée sur le thread qui traite les événements tactiles (le thread UI). */
 interface DelayScheduler {
     fun postDelayed(task: Runnable, delayMs: Long)
@@ -58,7 +101,7 @@ class LongPress(
 }
 
 /**
- * Reconnaît un **tap**, un **appui long** ou un **glissement** dans un flux d'événements tactiles (SS-041, SS-042). Machine à états pure,
+ * Reconnaît un **tap**, un **appui long**, un **glissement** ou un **défilement à deux doigts** dans un flux d'événements tactiles (SS-041, SS-042). Machine à états pure,
  * sans dépendance Android : testable sur la JVM. L'adaptation depuis `MotionEvent` est dans [TouchInput].
  *
  * ## Tap (SS-041)
@@ -77,6 +120,19 @@ class LongPress(
  * délai annule l'appui long (c'est un glissement) ; un deuxième doigt ou une annulation aussi. Un contact de
  * durée `>= thresholdMs` est un appui long, de durée `< thresholdMs` un tap : **aucune zone morte** entre les deux,
  * quel que soit le seuil configuré (`maxTapMs` ne s'applique alors plus).
+ *
+ * ## Défilement à deux doigts (SS-044)
+ * Avec un [scroll], un deuxième doigt posé pendant que le premier n'a ni bougé de plus de [slopPx], ni déclenché
+ * l'appui long, démarre un défilement ([onTwoFingersDown]). Le **centre des deux doigts** ([onTwoFingersMove]) est
+ * converti en crans de molette : un cran par [Scroll.stepPx] pixels parcourus, le reste étant conservé pour le
+ * déplacement suivant (rien n'est perdu, rien n'est arrondi à l'excès). **Un seul axe à la fois** : à chaque
+ * déplacement on ne garde que l'axe où le chemin cumulé est le plus grand et on oublie l'autre, ainsi un léger
+ * dérapage latéral pendant un défilement vertical ne produit jamais de cran horizontal. Les crans d'un événement
+ * sont bornés à [Scroll.MAX_CLICKS_PER_EVENT].
+ * Un défilement n'émet **jamais** de clic ni de tap : lever les doigts ne clique pas. Il se termine dès que le nombre de
+ * doigts change (un doigt levé ou un troisième posé, via [onCancel] ou [onSecondFingerDown]) et ne reprend pas
+ * avant le prochain `onDown`. Un deuxième doigt posé pendant un glissement le relâche et n'ouvre pas de défilement ;
+ * après un appui long, il est ignoré.
  *
  * ## Glissement (SS-042)
  * Quand le doigt dépasse [slopPx], le glissement commence : `onDragStart(position de départ)` puis
@@ -105,6 +161,8 @@ class LongPress(
  *   glissement.
  * @param dragListener reçoit les glissements ; `null` pour ne reconnaître que les taps.
  * @param longPress réglage de l'appui long ; `null` pour ne pas le reconnaître.
+ * @param scroll réglage du défilement à deux doigts ; `null` pour ne pas le reconnaître (un deuxième doigt annule
+ *   alors simplement le geste).
  * @param onTap reçoit la position du toucher initial, en pixels de la vue.
  */
 class TouchGestureDetector(
@@ -112,6 +170,7 @@ class TouchGestureDetector(
     private val maxTapMs: Long = DEFAULT_MAX_TAP_MS,
     private val dragListener: DragListener? = null,
     private val longPress: LongPress? = null,
+    private val scroll: Scroll? = null,
     private val onTap: (x: Float, y: Float) -> Unit
 ) {
     init {
@@ -119,7 +178,7 @@ class TouchGestureDetector(
         require(maxTapMs > 0) { "maxTapMs doit être > 0 : $maxTapMs" }
     }
 
-    private enum class State { IDLE, PENDING, DRAGGING, LONG_PRESSED }
+    private enum class State { IDLE, PENDING, DRAGGING, LONG_PRESSED, SCROLLING }
 
     // Alloué une fois : programmer l'appui long à chaque toucher ne crée aucun objet.
     private val longPressTask = Runnable { onLongPressTimeout() }
@@ -130,6 +189,16 @@ class TouchGestureDetector(
     private var downTimeMs = 0L
     private var lastX = 0f
     private var lastY = 0f
+
+    // Défilement : dernier centre des deux doigts et chemin cumulé pas encore converti en crans.
+    private var scrollX = 0f
+    private var scrollY = 0f
+    private var accumX = 0f
+    private var accumY = 0f
+
+    /** `true` pendant un défilement à deux doigts. */
+    val isScrolling: Boolean
+        get() = state == State.SCROLLING
 
     /** `true` tant qu'un geste est un tap possible (doigt posé, pas encore de mouvement significatif). */
     val isTracking: Boolean
@@ -162,11 +231,63 @@ class TouchGestureDetector(
         when (state) {
             State.PENDING -> if (!withinSlop(x, y)) startDrag(x, y)
             State.DRAGGING -> moveDrag(x, y)
-            State.IDLE, State.LONG_PRESSED -> Unit // après un appui long, le reste du geste est ignoré
+            // après un appui long le reste du geste est ignoré ; pendant un défilement, seul le centre compte
+            State.IDLE, State.LONG_PRESSED, State.SCROLLING -> Unit
         }
     }
 
-    /** Un doigt supplémentaire est posé : ce n'est ni un tap ni un glissement ; un glissement en cours se termine. */
+    /**
+     * Le deuxième doigt vient d'être posé et le **centre des deux doigts** est en ([centerX], [centerY]) : commence un
+     * défilement si le geste s'y prête (premier doigt posé sans mouvement significatif et sans appui long, avec un
+     * [scroll]). Sinon se comporte comme [onSecondFingerDown] : le geste est abandonné et un glissement en cours est
+     * relâché.
+     */
+    fun onTwoFingersDown(centerX: Float, centerY: Float) {
+        val config = scroll
+        if (config == null || state != State.PENDING || !centerX.isFinite() || !centerY.isFinite()) {
+            onSecondFingerDown()
+            return
+        }
+        cancelLongPressTimer()
+        state = State.SCROLLING
+        scrollX = centerX
+        scrollY = centerY
+        accumX = 0f
+        accumY = 0f
+        config.listener.onScrollStart(centerX, centerY)
+    }
+
+    /** Le centre des deux doigts se déplace en ([centerX], [centerY]) : émet les crans de molette correspondants. */
+    fun onTwoFingersMove(centerX: Float, centerY: Float) {
+        val config = scroll ?: return
+        if (state != State.SCROLLING || !centerX.isFinite() || !centerY.isFinite()) return
+        accumX += centerX - scrollX
+        accumY += centerY - scrollY
+        scrollX = centerX
+        scrollY = centerY
+
+        // Un seul axe : celui du plus grand chemin cumulé ; l'autre est oublié (pas de dérapage latéral).
+        if (Math.abs(accumY) >= Math.abs(accumX)) accumX = 0f else accumY = 0f
+        val stepsX = (accumX / config.stepPx).toInt() // vers zéro
+        val stepsY = (accumY / config.stepPx).toInt()
+        if (stepsX == 0 && stepsY == 0) return
+        val limit = Scroll.MAX_CLICKS_PER_EVENT
+        // Un saut énorme (capteur, doigt qui glisse hors de la dalle) : on plafonne et on oublie le reste.
+        accumX = if (Math.abs(stepsX) > limit) 0f else accumX - stepsX * config.stepPx
+        accumY = if (Math.abs(stepsY) > limit) 0f else accumY - stepsY * config.stepPx
+
+        // Sens : « naturel » = le contenu suit les doigts, donc doigts vers le haut => molette vers le bas.
+        val sign = if (config.natural) -1 else 1
+        config.listener.onScroll(
+            (sign * stepsX).coerceIn(-limit, limit),
+            (sign * stepsY).coerceIn(-limit, limit)
+        )
+    }
+
+    /**
+     * Un doigt supplémentaire est posé sans qu'un défilement puisse commencer (troisième doigt, défilement non
+     * reconnu) : ce n'est ni un tap ni un glissement ; un glissement ou un défilement en cours se termine.
+     */
     fun onSecondFingerDown() {
         cancelLongPressTimer()
         endDragIfAny()
@@ -181,8 +302,8 @@ class TouchGestureDetector(
     fun onUp(x: Float, y: Float, timeMs: Long): Boolean {
         when (state) {
             State.IDLE -> return false
-            State.LONG_PRESSED -> {
-                state = State.IDLE // l'appui long a déjà tout dit : pas de tap au relâchement
+            State.LONG_PRESSED, State.SCROLLING -> {
+                state = State.IDLE // l'appui long ou le défilement a tout dit : pas de tap au relâchement
                 return false
             }
             State.DRAGGING -> {

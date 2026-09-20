@@ -1,6 +1,7 @@
 package fr.webinfoconcept.secondscreen.input
 
 import fr.webinfoconcept.secondscreen.rfb.protocol.ClientMessages
+import fr.webinfoconcept.secondscreen.rfb.protocol.PointerButtons
 import fr.webinfoconcept.secondscreen.rfb.testutil.LoopbackPair
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -385,6 +386,168 @@ class PointerActionsTest {
         // le bouton gauche n'apparaît que dans le clic du tap : masques des trois messages de chaque clic
         val masks = (0 until stream.size step 6).map { stream[it + 1].toInt() }
         assertEquals(listOf(0, 4, 0, 0, 1, 0, 0, 4, 0), masks)
+        sender.stop()
+        p.client.close()
+        assertEquals("aucun octet de plus", 0, p.receiveUntilEof().size)
+    }
+
+    // =========================================================== défilement (SS-044)
+
+    @Test(timeout = 10_000)
+    fun `scroll clicks are wheel events at the framebuffer pixel of the initial center`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onScrollStart(640.9f, 400.2f)
+        actions.onScroll(0, 2)   // molette vers le bas, 2 crans
+        actions.onScroll(0, -1)  // vers le haut
+        actions.onScroll(1, 0)   // vers la droite
+        actions.onScroll(-3, 0)  // vers la gauche
+
+        val stream = collected(out)
+        assertArrayEquals(
+            ClientMessages.wheel(PointerButtons.WHEEL_DOWN, 2, 640, 400) +
+                ClientMessages.wheel(PointerButtons.WHEEL_UP, 1, 640, 400) +
+                ClientMessages.wheel(PointerButtons.WHEEL_RIGHT, 1, 640, 400) +
+                ClientMessages.wheel(PointerButtons.WHEEL_LEFT, 3, 640, 400),
+            stream
+        )
+    }
+
+    @Test(timeout = 10_000)
+    fun `the wheel position stays at the initial center even if the fingers travel far`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+        val detector = TouchGestureDetector(8f, scroll = Scroll(actions, 40f)) { _, _ -> }
+
+        detector.onDown(450f, 600f, 0)
+        detector.onTwoFingersDown(500f, 600f)
+        for (i in 1..10) detector.onTwoFingersMove(500f + i, 600f - i * 40f) // le centre parcourt 400 px vers le haut, 10 px de dérive
+
+        val stream = collected(out)
+        assertEquals(10 * 12, stream.size)
+        for (i in stream.indices step 6) {
+            val x = ((stream[i + 2].toInt() and 255) shl 8) or (stream[i + 3].toInt() and 255)
+            val y = ((stream[i + 4].toInt() and 255) shl 8) or (stream[i + 5].toInt() and 255)
+            assertEquals("x", 500, x)
+            assertEquals("y", 600, y)
+        }
+    }
+
+    @Test(timeout = 10_000)
+    fun `an initial center outside the framebuffer is clamped to the edge, and scroll still works`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onScrollStart(1500f, -20f)
+        actions.onScroll(0, 1)
+
+        assertArrayEquals(ClientMessages.wheel(PointerButtons.WHEEL_DOWN, 1, 1279, 0), collected(out))
+    }
+
+    @Test(timeout = 10_000)
+    fun `scroll without a valid start sends nothing`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onScroll(0, 1)                     // jamais démarré
+        actions.onScrollStart(Float.NaN, 10f)      // centre illisible
+        actions.onScroll(0, 1)
+
+        assertEquals(0, collected(out).size)
+    }
+
+    @Test(timeout = 10_000)
+    fun `a zero scroll sends nothing and an oversized one is capped to the message limit`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+        actions.onScrollStart(10f, 10f)
+
+        actions.onScroll(0, 0)
+        actions.onScroll(0, 1_000)
+
+        val stream = collected(out)
+        assertEquals(12 * ClientMessages.MAX_WHEEL_CLICKS, stream.size)
+    }
+
+    @Test
+    fun `scroll is refused silently when the sender is stopped`() {
+        val actions = PointerActions(PointerMapper(1280, 800), PointerSender { }.also { senders += it })
+
+        actions.onScrollStart(10f, 10f)
+        actions.onScroll(0, 1) // ne plante pas
+    }
+
+    @Test(timeout = 20_000)
+    fun `on a stuck link wheel messages are dropped whole and the stream stays balanced, the release always gets through`() {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val out = LinkedBlockingQueue<ByteArray>()
+        val sender = PointerSender(capacity = 16) { entered.countDown(); release.await(); out += it }
+            .also { it.start(); senders += it }
+        val actions = PointerActions(PointerMapper(1280, 800), sender)
+
+        actions.tap(5f, 5f) // occupe l'écriture, qui se bloque
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        actions.onScrollStart(300f, 300f)
+        for (i in 1..500) actions.onScroll(0, 1 + i % 3) // liaison bloquée : la file se remplit de crans
+        actions.tap(9f, 9f)                              // un message d'état passe malgré tout (place réservée)
+        release.countDown()
+
+        val stream = collected(out)
+        val server = ShadowServerWithWheel().also { it.feed(stream) }
+        assertTrue("des crans ont été abandonnés", sender.droppedCount > 400)
+        assertEquals("aucune molette restée enfoncée", 0, server.mask)
+        assertTrue("le dernier clic de gauche a bien été envoyé", server.leftPresses >= 2)
+        assertEquals("chaque appui de molette a son relâchement", server.wheelPresses, server.wheelReleases)
+    }
+
+    /** Serveur simulé : suit le masque de boutons, y compris la molette. */
+    private class ShadowServerWithWheel {
+        var mask = 0
+        var leftPresses = 0
+        var wheelPresses = 0
+        var wheelReleases = 0
+        fun feed(stream: ByteArray) {
+            assertEquals(0, stream.size % 6)
+            for (i in stream.indices step 6) {
+                assertEquals(5, stream[i].toInt())
+                val new = stream[i + 1].toInt() and 0xFF
+                val pressed = new and mask.inv()
+                val released = mask and new.inv()
+                if (pressed and PointerButtons.LEFT != 0) leftPresses++
+                if (pressed and (PointerButtons.WHEEL_UP or PointerButtons.WHEEL_DOWN or PointerButtons.WHEEL_LEFT or PointerButtons.WHEEL_RIGHT) != 0) wheelPresses++
+                if (released and (PointerButtons.WHEEL_UP or PointerButtons.WHEEL_DOWN or PointerButtons.WHEEL_LEFT or PointerButtons.WHEEL_RIGHT) != 0) wheelReleases++
+                mask = new
+            }
+        }
+    }
+
+    @Test(timeout = 10_000)
+    fun `a two finger scroll reaches the server as wheel clicks only - never a button, never a click`() = LoopbackPair().use { p ->
+        val sender = PointerSender.forSocket(p.client).also { it.start(); senders += it }
+        val actions = PointerActions(PointerMapper(1280, 800), sender)
+        val detector = TouchGestureDetector(8f, dragListener = actions, scroll = Scroll(actions, 40f)) { x, y -> actions.tap(x, y) }
+
+        // deux doigts, défilement vers le haut de 130 px (3 crans, reste 10) puis vers la droite de 45 px (1 cran)
+        detector.onDown(450f, 500f, 0)
+        detector.onTwoFingersDown(500f, 500f)
+        detector.onTwoFingersMove(500f, 400f)
+        detector.onTwoFingersMove(500f, 370f)
+        detector.onTwoFingersMove(560f, 370f)
+        detector.onCancel(); detector.onUp(500f, 370f, 900) // les doigts se lèvent : rien de plus
+        // un tap ensuite : clic gauche normal
+        detector.onDown(10f, 10f, 2_000); detector.onUp(10f, 10f, 2_060)
+
+        val expected = ClientMessages.wheel(PointerButtons.WHEEL_DOWN, 3, 500, 500) +
+            ClientMessages.wheel(PointerButtons.WHEEL_LEFT, 1, 500, 500) + // doigts vers la droite, sens naturel : molette gauche
+            ClientMessages.leftClick(10, 10)
+        val stream = p.receiveExactly(expected.size)
+        assertArrayEquals(expected, stream)
+        val server = ShadowServerWithWheel().also { it.feed(stream) }
+        assertEquals(0, server.mask)
+        assertEquals(1, server.leftPresses)
+        assertEquals(4, server.wheelPresses)
         sender.stop()
         p.client.close()
         assertEquals("aucun octet de plus", 0, p.receiveUntilEof().size)

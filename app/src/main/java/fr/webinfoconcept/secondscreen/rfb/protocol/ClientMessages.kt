@@ -36,6 +36,9 @@ object ClientMessages {
     /** Longueur de [rightClick] : trois `PointerEvent`. */
     const val RIGHT_CLICK_LENGTH = LEFT_CLICK_LENGTH
 
+    /** Plus grand nombre de crans de molette d'un seul message [wheel] (borne la taille : 12 octets par cran). */
+    const val MAX_WHEEL_CLICKS = 16
+
     /** Longueur de [dragStart] : deux `PointerEvent`. */
     const val DRAG_START_LENGTH = 2 * POINTER_EVENT_LENGTH
 
@@ -133,6 +136,36 @@ object ClientMessages {
      */
     fun rightClick(x: Int, y: Int): ByteArray = click(PointerButtons.RIGHT, x, y)
 
+    /**
+     * Défilement à la molette (SS-044) : [clicks] crans dans une même direction, en **un seul message** de
+     * `12 × clicks` octets à envoyer avec un seul `write`. Un cran est un appui puis un relâchement d'un « bouton »
+     * de molette au pixel ([x], [y]) :
+     * ```text
+     * (masque = direction, x, y)   appui du bouton de molette
+     * (masque = 0, x, y)           relâchement
+     * ```
+     * [direction] est l'un de [PointerButtons.WHEEL_UP], [PointerButtons.WHEEL_DOWN], [PointerButtons.WHEEL_LEFT],
+     * [PointerButtons.WHEEL_RIGHT] (boutons 4 à 7 de X11 : c'est ainsi que VNC transporte la molette). Chaque appui est
+     * relâché dans le même message : la molette ne peut pas rester « enfoncée » côté serveur, et aucun bouton
+     * ordinaire n'est touché.
+     *
+     * @throws IllegalArgumentException [direction] n'est pas un bouton de molette, [clicks] hors 1..[MAX_WHEEL_CLICKS],
+     *   ou coordonnée hors 0..65535.
+     */
+    fun wheel(direction: Int, clicks: Int, x: Int, y: Int): ByteArray {
+        require(direction == PointerButtons.WHEEL_UP || direction == PointerButtons.WHEEL_DOWN ||
+            direction == PointerButtons.WHEEL_LEFT || direction == PointerButtons.WHEEL_RIGHT) {
+            "ce n'est pas un bouton de molette : $direction"
+        }
+        require(clicks in 1..MAX_WHEEL_CLICKS) { "nombre de crans hors de 1..$MAX_WHEEL_CLICKS : $clicks" }
+        val message = ByteArray(2 * POINTER_EVENT_LENGTH * clicks)
+        for (i in 0 until clicks) {
+            writePointerEvent(message, 2 * POINTER_EVENT_LENGTH * i, direction, x, y)
+            writePointerEvent(message, 2 * POINTER_EVENT_LENGTH * i + POINTER_EVENT_LENGTH, 0, x, y)
+        }
+        return message
+    }
+
     private fun click(button: Int, x: Int, y: Int): ByteArray {
         val message = ByteArray(LEFT_CLICK_LENGTH)
         writePointerEvent(message, 0, 0, x, y)
@@ -180,11 +213,15 @@ object ClientMessages {
     }
 }
 
-/** Bits du masque de boutons d'un `PointerEvent` (SS-040) : bit N-1 = bouton N, comme X11. */
+/** Bits du masque de boutons d'un `PointerEvent` (SS-040, SS-044) : bit N-1 = bouton N, comme X11. */
 object PointerButtons {
     const val LEFT = 1
     const val MIDDLE = 2
     const val RIGHT = 4
     const val WHEEL_UP = 8
     const val WHEEL_DOWN = 16
+
+    /** Molette horizontale (boutons 6 et 7 de X11), reconnue par TigerVNC. */
+    const val WHEEL_LEFT = 32
+    const val WHEEL_RIGHT = 64
 }
