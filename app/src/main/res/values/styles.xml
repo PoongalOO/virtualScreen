@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Thème framework classique (pas d'AndroidX/AppCompat) : disponible sur API 17,
+      conforme à la contrainte "Android Views classiques" (AGENTS.md / ARCHITECTURE.md).
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.Holo.Light">
+        <!-- Le layout racine peint déjà son propre fond ; évite le double
+             remplissage relevé par Lint (Overdraw). -->
+        <item name="android:windowBackground">@null</item>
+    </style>
+</resources>

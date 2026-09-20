@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      SS-001 : aucune permission pour ce squelette. La permission INTERNET
+      sera ajoutée avec le transport RFB (SS-010), pas avant, pour ne
+      demander que ce qui est réellement utilisé à chaque étape.
+    -->
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <!-- Pas de android:screenOrientation : l'orientation reste libre, donc le
+                 mode paysage est disponible (critère SS-001). Lint (LockedOrientationActivity)
+                 déconseille même la valeur explicite "unspecified". Le mode paysage forcé
+                 plein écran est traité par SS-032/SS-034 sur l'écran distant, pas ici. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- SS-003 : écran de diagnostic, pas de intent-filter -> exported=false
+             implicite, non accessible depuis l'extérieur de l'app. -->
+        <activity
+            android:name=".DiagnosticActivity"
+            android:label="@string/diagnostic_title" />
+    </application>
+</manifest>

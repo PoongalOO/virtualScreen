@@ -1,0 +1,188 @@
+# Backlog / Issues
+
+Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`, `security`, `test`, `docs`.
+
+## Epic E0 — Initialisation
+
+### SS-001 — Créer le projet Android Kotlin compatible API 17 — P0
+**Critères :** projet compilable ; `minSdk=17` ; application installable sur GT-P5110 ; orientation paysage disponible ; aucune dépendance inutile.
+
+### SS-002 — Ajouter CI build/lint/tests — P1
+**Critères :** build debug automatisé ; tests unitaires exécutés ; artefact APK produit.
+
+### SS-003 — Créer écran de diagnostic matériel — P1
+**Critères :** version Android, API, résolution, mémoire et ABI affichées sans donnée sensible.
+
+## Epic E1 — Transport et handshake RFB
+
+### SS-010 — Implémenter RfbSocket — P0
+Connexion TCP, timeouts, fermeture idempotente, erreurs typées.
+
+### SS-011 — Négocier ProtocolVersion — P0
+Support au minimum de la version nécessaire aux serveurs de test.
+
+### SS-012 — Implémenter négociation de sécurité — P0
+Commencer par `None` pour environnement de développement local ; prévoir l'interface permettant d'ajouter VNC Authentication.
+
+### SS-013 — Implémenter ClientInit / ServerInit — P0
+Lire largeur, hauteur, pixel format et desktop name avec validation des tailles.
+
+### SS-014 — Implémenter authentification VNC classique — P1
+Aucune trace du mot de passe ; tests avec mot de passe valide/invalide.
+
+## Epic E2 — Framebuffer
+
+### SS-020 — Créer Framebuffer 1280×800 — P0
+Allocation stable ; API de mise à jour rectangulaire ; contrôle des limites.
+
+### SS-021 — Implémenter SetPixelFormat — P0
+Format 32 bits true-color documenté et testé.
+
+### SS-022 — Implémenter SetEncodings — P0
+RAW initialement, puis CopyRect/Hextile.
+
+### SS-023 — Décoder FramebufferUpdate — P0
+Support multi-rectangles ; gestion des messages incomplets/EOF.
+
+### SS-024 — Implémenter RAW — P0
+Affichage exact d'un bureau de test ; tests de rectangles partiels.
+
+### SS-025 — Implémenter CopyRect — P1
+Copie sans corruption, y compris zones se chevauchant.
+
+### SS-026 — Implémenter Hextile — P1
+Tests unitaires par sous-encodage et comparaison avec image attendue.
+
+## Epic E3 — Rendu
+
+### SS-030 — Créer RemoteSurfaceView — P0
+Surface plein écran et rendu d'un framebuffer statique.
+
+### SS-031 — Relier framebuffer et SurfaceView — P0
+Mises à jour visibles sans allocation massive par frame.
+
+### SS-032 — Rendu 1:1 1280×800 — P0
+Aucun scaling sur résolution native.
+
+### SS-033 — Ajouter scaling letterbox — P2
+Ratio conservé pour serveur non 1280×800.
+
+### SS-034 — Mode immersif compatible API 17 — P1
+Masquer au maximum le chrome système sans bloquer la sortie de l'application.
+
+## Epic E4 — Entrées
+
+### SS-040 — Envoyer PointerEvent — P0
+Coordonnées exactes et état bouton.
+
+### SS-041 — Tap = clic gauche — P0
+Down/up fiables sans double événement.
+
+### SS-042 — Drag — P0
+Déplacement avec bouton maintenu.
+
+### SS-043 — Appui long = clic droit — P1
+Seuil configurable et absence de clic gauche parasite.
+
+### SS-044 — Scroll deux doigts — P1
+Conversion en événements de molette VNC.
+
+### SS-045 — Mode touchpad relatif — P2
+Sensibilité réglable.
+
+### SS-046 — KeyEvent texte — P1
+Saisie ASCII/latin de base.
+
+### SS-047 — Touches spéciales — P1
+Ctrl, Alt, Shift, Tab, Esc, Enter, Backspace.
+
+## Epic E5 — UX et profils
+
+### SS-050 — Écran de connexion — P0
+Hôte, port, sécurité, connexion.
+
+### SS-051 — Enregistrer profils — P1
+Nom/hôte/port, sans fuite de secret.
+
+### SS-052 — Barre de commandes distante — P1
+Clavier, mode pointeur, diagnostic, déconnexion.
+
+### SS-053 — États et erreurs compréhensibles — P0
+Connexion, négociation, auth, timeout, réseau coupé.
+
+### SS-054 — Reconnexion manuelle — P0
+Pas de redémarrage de l'application.
+
+### SS-055 — Reconnexion automatique — P2
+Backoff borné, désactivable.
+
+## Epic E6 — Performance
+
+### SS-060 — Instrumenter FPS et débit — P1
+Mesures désactivables et peu coûteuses.
+
+### SS-061 — Mesurer allocations — P1
+Session de référence de 30 min puis 2 h.
+
+### SS-062 — Réduire copies framebuffer — P1
+Objectif : aucune copie plein écran inutile par update.
+
+### SS-063 — Benchmark RAW vs Hextile — P2
+Mesurer CPU, réseau, FPS et latence sur GT-P5110 réelle.
+
+## Epic E7 — Sécurité
+
+### SS-070 — Validation stricte des tailles réseau — P0
+Overflow, tailles négatives/interprétées, rectangles hors limites.
+
+### SS-071 — Nettoyer les logs — P0
+Aucun mot de passe ou contenu sensible.
+
+### SS-072 — Avertissement connexion non chiffrée — P1
+Message explicite pour VNC classique.
+
+### SS-073 — Documenter pare-feu et LAN — P1
+Ne jamais recommander d'exposer 5900 sur Internet.
+
+## Epic E8 — Tests et compatibilité
+
+### SS-080 — Tests unitaires endian/pixel format — P0
+Fixtures déterministes.
+
+### SS-081 — Tests RAW — P0
+Rectangles complets/partiels et limites.
+
+### SS-082 — Tests Hextile — P1
+Cas de sous-encodages.
+
+### SS-083 — Faux serveur RFB de tests — P1
+Flux déterministes, fragmentation TCP simulée.
+
+### SS-084 — Test GT-P5110 Android 4.2.2 — P0
+Installation, connexion, rendu, tactile.
+
+### SS-085 — Test Ubuntu — P0
+Écran virtuel 1280×800 + serveur VNC documentés.
+
+### SS-086 — Test Windows — P0
+Écran virtuel 1280×800 + serveur VNC documentés.
+
+### SS-087 — Soak test 2 h — P1
+Pas de crash/fuite croissante significative.
+
+## Epic E9 — Documentation et release
+
+### SS-090 — README utilisateur — P0
+Installation et première connexion.
+
+### SS-091 — Guide Ubuntu — P0
+Procédure reproductible et dépannage.
+
+### SS-092 — Guide Windows — P0
+Procédure reproductible et dépannage.
+
+### SS-093 — Générer APK release — P1
+Versionnement, checksum et notes de version.
+
+### SS-094 — Licence et notices — P1
+Licence du projet et dépendances documentées.
