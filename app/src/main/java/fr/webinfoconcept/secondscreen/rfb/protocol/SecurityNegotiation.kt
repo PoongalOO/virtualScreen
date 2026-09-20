@@ -98,20 +98,10 @@ object SecurityNegotiation {
     private fun readReason(reader: RfbReader): String = try {
         val announced = reader.readU32()
         val toRead = minOf(announced, MAX_REASON_LENGTH.toLong()).toInt()
-        sanitize(reader.readBytes(toRead))
+        sanitizeServerText(reader.readBytes(toRead))
     } catch (e: RfbTransportException.EndOfStream) {
         ""
     } catch (e: RfbTransportException.ReadTimeout) {
         ""
-    }
-
-    /** Ne garde que l'ASCII imprimable : tout le reste (contrôles, UTF-8, binaire) devient `?`. */
-    private fun sanitize(bytes: ByteArray): String {
-        val out = StringBuilder(bytes.size)
-        for (b in bytes) {
-            val c = b.toInt() and 0xFF
-            out.append(if (c in 0x20..0x7E) c.toChar() else '?')
-        }
-        return out.toString()
     }
 }

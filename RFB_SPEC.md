@@ -37,6 +37,24 @@ Le serveur est une entrée non fiable : le texte de raison est lu sur **256 octe
 
 `None` ne doit servir que sur un LAN de développement de confiance (voir SECURITY.md).
 
+### ClientInit / ServerInit (SS-013)
+
+`ClientInit` : 1 octet `shared-flag` (1 par défaut : les autres clients restent connectés). `ServerInit` : `U16` largeur, `U16` hauteur, `PIXEL_FORMAT` (16 octets), `U32` longueur du nom, nom du bureau.
+
+Le serveur est une entrée non fiable ; tout est validé avant d'allouer ou de lire la suite, dans cet ordre :
+
+| Contrôle | Limite | Erreur |
+|---|---|---|
+| Dimensions | 1 à 4096 par axe, **surface ≤ 1920×1200** (2 304 000 px) | `InvalidFramebufferSize` |
+| `PIXEL_FORMAT` | 8/16/32 bpp, `depth` 1..bpp ; en couleurs vraies : maxima de la forme 2ⁿ−1, décalages qui tiennent dans le pixel, canaux sans chevauchement | `InvalidPixelFormat` |
+| Nom du bureau | longueur annoncée ≤ 1024 octets | `InvalidDesktopName` |
+
+Justification de la surface maximale : un buffer ARGB_8888 de 1920×1200 pèse 9,2 Mio ; avec le Bitmap de rendu, ~18 Mio sur un tas applicatif de 48 Mio mesuré sur la GT-P5110 (SS-003). Le bureau nominal 1280×800 n'en utilise que 44 %. Un serveur qui expose un écran plus grand (ex. 2560×1440) est refusé : réduire la résolution de l'écran virtuel côté PC.
+
+Le nom est assaini (ASCII imprimable, le reste devient `?`). Contrairement aux textes de raison (256 octets lus, le reste ignoré car la connexion est fermée), un nom trop long est **refusé** et non tronqué : le flux continue après le nom, en lire moins désalignerait tous les messages suivants.
+
+Le format de pixels du serveur est informatif : le client impose le sien avec `SetPixelFormat` (SS-021).
+
 ## Séquence
 
 ```text

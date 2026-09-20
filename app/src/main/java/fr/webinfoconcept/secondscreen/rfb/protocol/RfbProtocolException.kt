@@ -45,4 +45,22 @@ sealed class RfbProtocolException(message: String) : IOException(message) {
     /** `SecurityResult` autre que 0 (succès) ou 1 (échec) : flux désaligné ou serveur non conforme. */
     class InvalidSecurityResult :
         RfbProtocolException("Réponse de sécurité invalide")
+
+    /**
+     * Dimensions du framebuffer annoncées par le serveur nulles ou supérieures aux limites
+     * ([InitExchange.MAX_DIMENSION], [InitExchange.MAX_PIXELS]). Ce sont des entiers, pas du texte.
+     */
+    class InvalidFramebufferSize(val width: Int, val height: Int) :
+        RfbProtocolException("Taille d'écran distant non supportée : ${width}x$height")
+
+    /**
+     * `PIXEL_FORMAT` du serveur incohérent. [detail] est un libellé fixe du client
+     * (nom du champ fautif), jamais du texte reçu du serveur.
+     */
+    class InvalidPixelFormat(val detail: String) :
+        RfbProtocolException("Format de pixels invalide envoyé par le serveur ($detail)")
+
+    /** Longueur annoncée du nom du bureau supérieure à [InitExchange.MAX_NAME_LENGTH]. */
+    class InvalidDesktopName(val announcedLength: Long) :
+        RfbProtocolException("Nom du bureau distant trop long ($announcedLength octets)")
 }
