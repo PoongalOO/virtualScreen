@@ -87,6 +87,27 @@ TCP connect
 
 Tout type inconnu doit produire une erreur protocolaire contrôlée plutôt qu'un désalignement silencieux du flux.
 
+### Lecture des messages serveur (SS-023)
+
+`ServerMessageReader.readMessage()` lit un message à la fois sur le thread I/O :
+
+| Type | Message | Format | Traitement |
+|---|---|---|---|
+| 0 | `FramebufferUpdate` | `U8 0`, padding, `U16 n`, puis `n` rectangles : `U16 x, y, largeur, hauteur`, `S32 encodage`, données | chaque rectangle est décodé dans le framebuffer |
+| 2 | `Bell` | `U8 2` | ignoré |
+| 3 | `ServerCutText` | `U8 3`, 3 octets de padding, `U32 longueur`, texte | consommé et ignoré (presse-papiers non géré) |
+| autre (dont 1, `SetColourMapEntries`) | — | — | `UnsupportedServerMessage`, connexion fermée |
+
+Le serveur est une entrée non fiable :
+
+- chaque rectangle est validé **avant** de lire ses données (dans le framebuffer, sinon `RectangleOutOfBounds`) ; un encodage sans décodeur donne `UnsupportedEncoding` (S32 signé : les pseudo-encodages sont négatifs) ;
+- le texte de `ServerCutText` est sauté par blocs de 4 Kio sans être conservé, et refusé au-delà de **1 Mio** (`CutTextTooLong`) : sa longueur est un `U32` non fiable, mais il faut le consommer pour rester aligné ;
+- le nombre de rectangles est un `U16` : il ne pilote aucune allocation.
+
+**Erreurs et frontière de message** : pendant un message, toute erreur (EOF, timeout, protocole) ferme la socket, car le flux est désaligné. Un timeout **avant le premier octet** d'un message est en revanche récupérable (socket ouverte, l'appel peut être refait) ; un EOF à cet endroit est la fermeture normale par le serveur. Après une erreur au milieu d'un `FramebufferUpdate`, les rectangles déjà décodés restent appliqués et le contenu du rectangle en cours est indéfini : la reconnexion redemande un écran complet.
+
+Un `RectangleListener` optionnel est notifié après chaque rectangle décodé (le rendu, SS-031, s'en servira pour retenir les zones modifiées).
+
 ## Messages client nécessaires
 
 - SetPixelFormat ;
@@ -112,6 +133,13 @@ Tout type inconnu doit produire une erreur protocolaire contrôlée plutôt qu'u
 ### RAW — P0
 
 Premier encodage. Valider : coordonnées, largeur, hauteur, bytes-per-pixel et taille calculée avant lecture/allocation.
+
+**Implémentation (SS-024)** : les données d'un rectangle sont `largeur × hauteur × bytes-per-pixel` octets, ligne par ligne, dans le format de pixels en vigueur (`SetPixelFormat`, SS-021).
+
+- **Validation avant lecture** : un rectangle hors du framebuffer est refusé avant d'avoir lu le moindre octet de pixels. La taille des données est donc bornée par celle du framebuffer et ne peut pas déborder.
+- **Ligne par ligne, sans buffer de rectangle** : chaque ligne est lue dans un petit buffer, convertie en ARGB puis copiée dans le framebuffer. Deux buffers de `maxWidth` pixels (≈ 32 Kio pour 1280 de large) sont alloués une fois : aucune allocation par rectangle ni par mise à jour, alors qu'un rectangle peut faire 9 Mio.
+- **Deux chemins qui produisent les mêmes pixels** (un test l'impose) : un chemin rapide pour `XRGB_8888_LE` (`[B, G, R, X]` → `0xFF000000 | 0x00RRGGBB`), et un chemin générique via `PixelFormat.decodePixel` pour tout autre format à couleurs vraies.
+- Un rectangle vide (largeur ou hauteur nulle) ne lit rien.
 
 ### CopyRect — P1
 

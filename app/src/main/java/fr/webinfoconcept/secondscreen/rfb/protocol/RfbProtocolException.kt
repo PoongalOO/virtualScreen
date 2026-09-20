@@ -72,6 +72,24 @@ sealed class RfbProtocolException(message: String) : IOException(message) {
         RfbProtocolException("Rectangle hors de l'écran distant : ($x,$y) ${width}x$height")
 
     /**
+     * Type de message serveur que le client ne gère pas (dont `SetColourMapEntries`, jamais envoyé
+     * à un client en couleurs vraies). Le flux ne peut plus être lu : la connexion est fermée.
+     */
+    class UnsupportedServerMessage(val type: Int) :
+        RfbProtocolException("Message serveur non supporté (type $type)")
+
+    /**
+     * Rectangle dans un encodage que le client n'a pas annoncé ou ne sait pas décoder (S32 signé :
+     * les pseudo-encodages sont négatifs). Le flux ne peut plus être lu : la connexion est fermée.
+     */
+    class UnsupportedEncoding(val encoding: Int) :
+        RfbProtocolException("Encodage non supporté ($encoding)")
+
+    /** Texte du presse-papiers distant (`ServerCutText`) plus long que la limite acceptée. */
+    class CutTextTooLong(val announcedLength: Long) :
+        RfbProtocolException("Texte du presse-papiers distant trop long ($announcedLength octets)")
+
+    /**
      * Le chiffrement DES requis par VNC Authentication est indisponible sur cet appareil
      * (aucun fournisseur JCA). Problème local, pas du serveur.
      */
