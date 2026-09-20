@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!--
-      SS-001 : aucune permission pour ce squelette. La permission INTERNET
-      sera ajoutée avec le transport RFB (SS-010), pas avant, pour ne
-      demander que ce qui est réellement utilisé à chaque étape.
-    -->
+    <!-- SS-010 : connexion TCP vers le serveur VNC (RfbSocket). Seule permission demandée. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"
