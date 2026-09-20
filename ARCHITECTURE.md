@@ -204,7 +204,7 @@ Le mot de passe n'existe que dans un `CharArray`. `ConnectActivity` le copie, **
 `ProfileStore` (nom, hôte, port) sur `SharedPreferences` (`PreferencesStore`), **sans aucun champ de mot de passe** (un test vérifie que ni les classes ni les clés écrites n'ont de place pour un secret). Les données lues sont traitées comme non fiables : un profil incomplet ou invalide est ignoré. Un profil n'est enregistré **qu'une fois la connexion établie** (une faute de frappe qui échoue n'écrase pas un profil qui marchait) ; même nom = même profil ; 50 profils au plus. Le dernier profil utilisé est proposé en tête de liste (« Reconnecter : ... », F08). `android:allowBackup="false"` : rien n'est sauvegardé dans un cloud.
 
 ### Barre de commandes (SS-052)
-Clavier, Pointeur, Diagnostic, **Plein écran**, Déconnexion. Elle s'affiche par la touche **Retour** (toujours fiable) ou un **tap à trois doigts** (`ThreeFingerTap`). Quand elle est visible, Retour quitte l'écran : la sortie reste à deux gestes. **Clavier** ouvre le mode clavier (voir « Clavier ») ; **Pointeur est présent mais désactivé** : il dépend de SS-045, non fait.
+Clavier, Pointeur, Diagnostic, **Plein écran**, Déconnexion. Elle s'affiche par la touche **Retour** (toujours fiable) ou un **tap à trois doigts** (`ThreeFingerTap`). Quand elle est visible, Retour quitte l'écran : la sortie reste à deux gestes. **Clavier** ouvre le mode clavier (voir « Clavier ») ; **Pointeur** bascule entre le mode direct et le mode touchpad (voir « Mode touchpad »).
 
 **Hors plein écran** (défaut), Retour ouvre la barre et le tap à trois doigts la ferme **du premier coup**, y compris après une longue inactivité (vérifié). Retour quand la barre est visible quitte l'écran.
 
@@ -280,6 +280,51 @@ rangée de touches spéciales (boutons) ─────────────�
 | Idem, Retour x3 ; Accueil avec Ctrl enfoncé | masque le clavier / ferme le mode / ouvre la barre ; Ctrl relâché côté serveur et connexion fermée |
 
 **Non vérifié** : un vrai clavier physique USB ou Bluetooth (les touches ont été injectées par `adb`, qui emprunte le même chemin `dispatchKeyEvent` mais pas un vrai périphérique) ; la saisie d'un caractère accentué ou de l'euro **au clavier virtuel** (la table est vérifiée depuis la JVM contre TigerVNC, pas depuis l'IME ; le clavier de la tablette valide chaque lettre au lieu de proposer un texte provisoire, donc le suivi des corrections n'a été vu que contre le serveur) ; AltGr (les caractères des couches AltGr comme `@` d'un clavier AZERTY passent comme keysyms, le serveur choisit la touche) ; un serveur Windows ; la répétition d'une touche de la rangée maintenue appuyée (chaque appui envoie une frappe, pas de répétition automatique) ; les claviers virtuels tiers (seul celui de la tablette a été essayé).
+
+## Mode touchpad (SS-045)
+
+Le bouton **Pointeur** de la barre de commandes bascule entre deux façons d'interpréter le doigt, mémorisées d'une session à l'autre (`InputSettings`) :
+
+- **Direct** (défaut) : le doigt *désigne* un point de l'écran distant (SS-040 à SS-044).
+- **Touchpad** : le doigt *déplace* le pointeur, comme sur un ordinateur portable. Utile pour viser précisément, ou quand le pointeur distant n'est pas sous le doigt.
+
+| Geste en touchpad | Effet |
+|---|---|
+| glisser un doigt | déplace le pointeur de `déplacement × sensibilité`, aucun bouton |
+| toucher et lever vite, sans bouger | clic gauche **où est le pointeur** (pas sous le doigt) |
+| deux touchers rapides de suite (300 ms) | double clic |
+| toucher, lever, **retoucher et glisser** | glissement : bouton gauche enfoncé pendant le déplacement |
+| doigt posé sans bouger jusqu'au délai d'appui long | clic droit au pointeur (le reste du geste est ignoré) |
+| deux doigts | défilement (molette) **au pointeur**, comme en mode direct |
+| trois doigts | barre de commandes (comme en mode direct) |
+
+```text
+MotionEvent -> TouchInput ─┬─ TouchGestureDetector (direct)  ─► PointerActions  ─┐
+                           └─ TouchpadDetector (touchpad)    ─► TouchpadActions ─┴─► controller.input
+                                          PointerPosition (dernière position du pointeur, partagée)
+```
+
+- **`TouchpadDetector`** (pure, sans Android) : les déplacements sont émis **avant sensibilité**, en pixels de la vue. **Pas de saut au démarrage** : tant que le doigt n'a pas dépassé le seuil de mouvement le pointeur ne bouge pas (un tap ne doit pas faire dériver le pointeur avant de cliquer), puis le chemin **déjà parcouru est appliqué en entier** : aucun mouvement n'est perdu (la distance totale égale le trajet du doigt, quelle que soit la finesse des événements, testé de 1 à 40 px par événement). Le toucher qui suit un tap de près n'arme pas d'appui long (c'est un second tap ou le début d'un glissement) ; un défilement efface la fenêtre de double tap.
+- **`TouchpadActions`** : tient la **position du pointeur distant**, décimale (un déplacement de 0,4 pixel s'ajoute au suivant, on n'envoie que quand le pixel change), bornée au framebuffer (le pointeur s'arrête au bord, sans zone morte pour repartir). Les déplacements sont **remplaçables** (`sendMove`), l'appui et le relâchement d'un glissement sont des messages d'état : sur une liaison lente on perd des déplacements, jamais le relâchement. Si l'appui n'a pas pu partir, les déplacements ne portent pas le bouton (ce serait un appui fantôme).
+- **Sensibilité** : facteur de 0,3× à 4,0× (défaut 1,5×), **réglable par un curseur** affiché sous la barre de commandes en mode touchpad, relue à chaque déplacement (le réglage agit immédiatement) et mémorisée au relâchement du curseur. Pas d'accélération : le pointeur suit le doigt proportionnellement. Les valeurs illisibles ou hors bornes du stockage redonnent le défaut ou la borne, jamais une exception.
+- **Position partagée** (`PointerPosition`) : les deux modes tiennent la même dernière position ; passer de l'un à l'autre ne fait pas sauter le pointeur. Elle n'est mise à jour **que quand un message part** (deux doigts posés sans défiler ne déplacent pas le pointeur distant : défaut trouvé pendant les essais sur la tablette). Une nouvelle session la remet à zéro ; sans position connue le pointeur part du **centre** de l'écran distant (le serveur ne dit pas où il est).
+- **Le pointeur est dessiné par le serveur** (TigerVNC et la plupart des serveurs l'incluent dans l'image quand le client ne demande pas d'encodage de curseur, ce qui est le cas ici). Un serveur qui ne le dessinerait pas rendrait le mode touchpad aveugle : il n'y a pas de curseur local.
+
+### Vérifié
+| Vérification | Résultat |
+|---|---|
+| JVM, 63 tests (`TouchpadDetector` 31 dont une propriété aléatoire, `TouchpadActions` 23 dont une propriété aléatoire, `InputSettings` 7, position partagée 2) | états, seuil sans perte, appui long horodaté, tap-glisser, double tap, bouton jamais coincé, bornes, sous-pixel, sensibilité relue, liaison bloquée (appui et relâchement passent, 2 000 déplacements abandonnés) ; quatre mutations (sensibilité ignorée, bornes supprimées, déplacement sans bouton, synchro de position supprimée) font échouer des tests |
+| Vrai TigerVNC + `xev`, depuis la JVM | glisser 100 px à sensibilité 2 : pointeur du centre (640,400) à (840,500) ; tap : clic bouton 1 en (840,500) ; appui long : bouton 3 au même point ; toucher-glisser : bouton 1 enfoncé (état `0x100`) sur 100 px puis relâché ; double tap ; molette : 2 × bouton 5 en (940,500) ; énorme déplacement : arrêt en (1279,799) |
+| GT-P5110, vrais doigts (`sendevent`), sensibilité 1,5× : 100 px à droite | pointeur de (640,400) à **(790,400)** |
+| Idem : tap, appui long 1 s, double tap | clic bouton 1, clic bouton 3, deux clics, tous en (790,400) alors que le doigt est ailleurs |
+| Idem : toucher, lever, retoucher et glisser (événements minimaux) | clic puis appui bouton 1, 3 déplacements avec l'état `0x100`, relâchement |
+| Idem : deux doigts vers le haut | molette bas (bouton 5) au pointeur |
+| Idem : curseur de sensibilité glissé au maximum (4,0×) puis −50 px de doigt | pointeur −201 px (de 973 à 772) |
+| Idem : nouvelle session | mode touchpad et 4,0× mémorisés |
+| Idem : retour au mode direct, tap en (200,300) | clic absolu exact en (200,300) |
+| Idem : passage direct -> touchpad après ce clic | le pointeur part de (200,300), sans saut, et arrive à ~(402,300) pour 50 px de doigt à 4,0× |
+
+**Non vérifié** : l'effet à la main sur une durée d'usage (confort, choix du défaut de 1,5×, absence d'accélération) ; un serveur qui ne dessine pas le pointeur (Windows) ; un tap-glisser à la main plus lent que l'injection (le délai de double tap est celui d'Android, 300 ms, non réglable) ; le mode touchpad avec le mode plein écran (le premier toucher après inactivité y est perdu, comme en mode direct).
 
 ## Réseau (SS-064)
 

@@ -47,6 +47,7 @@ class ViewDelayScheduler(private val view: View) : DelayScheduler {
  */
 class TouchInput(
     private val actions: PointerActions,
+    private val touchpadActions: TouchpadActions,
     slopPx: Float,
     private val view: View,
     longPressMs: Long = ViewConfiguration.getLongPressTimeout().toLong(),
@@ -65,12 +66,42 @@ class TouchInput(
 
     private val threeFingerTap = ThreeFingerTap(maxDriftPx = slopPx * 4f)
 
-    private val detector = TouchGestureDetector(
+    private val direct = TouchGestureDetector(
         slopPx,
         dragListener = actions,
         longPress = longPress,
         scroll = Scroll(actions, scrollStepPx, naturalScrolling)
     ) { x, y -> actions.tap(x, y) }
+
+    // Touchpad : le clic droit d'un appui long agit là où est le pointeur, pas sous le doigt.
+    private val touchpadLongPress = LongPress(longPressMs, ViewDelayScheduler(view)) { _, _ ->
+        touchpadActions.onRightClick()
+        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+    }
+
+    private val touchpad = TouchpadDetector(
+        slopPx,
+        touchpadActions,
+        longPress = touchpadLongPress,
+        scroll = Scroll(touchpadActions, scrollStepPx, naturalScrolling)
+    )
+
+    /** Interpréteur en service : le mode direct (défaut) ou le mode touchpad. */
+    private var detector: TouchGestures = direct
+
+    /** `true` en mode touchpad (SS-045). */
+    val isTouchpad: Boolean
+        get() = detector === touchpad
+
+    /**
+     * Bascule entre le mode direct et le mode touchpad. Le geste en cours est annulé d'abord (un bouton enfoncé est
+     * relâché), pour qu'aucun état ne passe d'un mode à l'autre.
+     */
+    fun setTouchpad(enabled: Boolean) {
+        if (enabled == isTouchpad) return
+        detector.onCancel()
+        detector = if (enabled) touchpad else direct
+    }
 
     /**
      * Abandonne le geste en cours : un glissement est relâché côté serveur. À appeler quand la vue cesse de recevoir

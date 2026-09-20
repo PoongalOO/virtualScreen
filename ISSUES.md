@@ -91,7 +91,7 @@ Seuil configurable et absence de clic gauche parasite. *(Fait : `LongPress`, `To
 Conversion en événements de molette VNC. *(Fait : `Scroll`, `ScrollListener`, `TouchGestureDetector.onTwoFingersDown/Move`, `ClientMessages.wheel`, `PointerActions`. Pas de 40 px et sens naturel par défaut, non ajustés sur une vraie application ; pas de réglage utilisateur ni d'inertie.)*
 
 ### SS-045 — Mode touchpad relatif — P2
-Sensibilité réglable.
+Sensibilité réglable. *(Fait : `TouchpadDetector`, `TouchpadActions`, `PointerPosition`, `InputSettings`, bouton Pointeur et curseur de sensibilité (0,3× à 4,0×) de la barre de commandes. Gestes : déplacer, tap = clic, tap-glisser, appui long = clic droit, deux doigts = molette. Pas d'accélération ni de curseur local : le pointeur est dessiné par le serveur.)*
 
 ### SS-046 — KeyEvent texte — P1
 Saisie ASCII/latin de base. *(Fait : `ClientMessages.keyEvent/keyPress/keyPresses`, `Keysyms`, `KeyboardInput`, `KeyboardInputView`, `ComposingDiff`, `KeyForwarder`. ASCII et Latin-1 directs, keysyms Unicode au-delà ; clavier virtuel et touches physiques.)*
@@ -108,7 +108,7 @@ Hôte, port, sécurité, connexion. *(Fait : `ConnectActivity`, `ProfileForm`, `
 Nom/hôte/port, sans fuite de secret. *(Fait : `ProfileStore`, `MainActivity` (liste, suppression par appui long, dernier profil en tête).)*
 
 ### SS-052 — Barre de commandes distante — P1
-Clavier, mode pointeur, diagnostic, déconnexion. *(Fait pour Diagnostic et Déconnexion ; **Clavier fait (SS-046/SS-047) ; Pointeur est un bouton désactivé** en attendant SS-045. Affichage : touche Retour ou tap à trois doigts.)*
+Clavier, mode pointeur, diagnostic, déconnexion. *(Fait pour Diagnostic et Déconnexion ; **Clavier (SS-046/SS-047) et Pointeur direct/touchpad (SS-045) faits.** Affichage : touche Retour ou tap à trois doigts.)*
 
 ### SS-053 — États et erreurs compréhensibles — P0
 Connexion, négociation, auth, timeout, réseau coupé. *(Fait : `ConnectionState`, `ConnectionFailure` (17 causes), `FailureMessages`, panneau d'état de l'écran distant, signe de vie pour détecter un réseau coupé.)*

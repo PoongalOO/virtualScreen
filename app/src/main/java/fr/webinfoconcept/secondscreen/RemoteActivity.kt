@@ -10,6 +10,7 @@ import android.view.ViewConfiguration
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.Toast
 import android.widget.ToggleButton
 import android.widget.TextView
@@ -19,6 +20,8 @@ import fr.webinfoconcept.secondscreen.input.KeyboardInputView
 import fr.webinfoconcept.secondscreen.input.Keysyms
 import fr.webinfoconcept.secondscreen.input.PointerActions
 import fr.webinfoconcept.secondscreen.input.PointerMapper
+import fr.webinfoconcept.secondscreen.input.PointerPosition
+import fr.webinfoconcept.secondscreen.input.TouchpadActions
 import fr.webinfoconcept.secondscreen.input.TouchInput
 import fr.webinfoconcept.secondscreen.profile.PreferencesStore
 import fr.webinfoconcept.secondscreen.render.RemoteSurfaceView
@@ -26,6 +29,8 @@ import fr.webinfoconcept.secondscreen.session.ConnectionController
 import fr.webinfoconcept.secondscreen.session.ConnectionFailure
 import fr.webinfoconcept.secondscreen.session.ConnectionState
 import fr.webinfoconcept.secondscreen.settings.DisplaySettings
+import fr.webinfoconcept.secondscreen.settings.InputSettings
+import fr.webinfoconcept.secondscreen.session.SessionInfo
 import fr.webinfoconcept.secondscreen.ui.FailureMessages
 import fr.webinfoconcept.secondscreen.ui.ImmersiveController
 import fr.webinfoconcept.secondscreen.ui.ViewSystemUiHost
@@ -50,13 +55,18 @@ import fr.webinfoconcept.secondscreen.ui.ViewSystemUiHost
  * ## Plein écran
  * Explicite et mémorisé ([DisplaySettings]) : voir [toggleFullscreen]. Par défaut la barre système reste visible.
  *
+ * ## Pointeur (SS-045)
+ * Le bouton Pointeur de la barre bascule entre le **mode direct** (le doigt désigne un point de l'écran distant) et le
+ * **mode touchpad** (le doigt déplace le pointeur, avec une sensibilité réglable). Le choix et la sensibilité sont mémorisés
+ * ([InputSettings]).
+ *
  * ## Clavier (SS-046, SS-047)
  * Le bouton Clavier de la barre active le **mode clavier** : clavier virtuel Android ([KeyboardInputView]) et rangée de
  * touches spéciales (Échap, Tab, Ctrl, Alt, Maj, Suppr, Effacer, Entrée, flèches). Un clavier physique fonctionne sans ce
  * mode. Retour ferme d'abord le clavier virtuel, puis le mode clavier.
  *
  * ## Barre de commandes (SS-052)
- * Clavier (SS-046/047), Pointeur (désactivé : SS-045), Diagnostic, Plein écran, Déconnexion. Elle s'affiche par la touche **Retour**
+ * Clavier (SS-046/047), Pointeur (direct / touchpad, SS-045), Diagnostic, Plein écran, Déconnexion. Elle s'affiche par la touche **Retour**
  * ou un **tap à trois doigts**. Retour quand elle est visible quitte l'écran : la sortie reste toujours à deux gestes.
  */
 class RemoteActivity : Activity(), ConnectionController.Listener {
@@ -65,6 +75,19 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     private lateinit var surface: RemoteSurfaceView
     private lateinit var actions: PointerActions
+    private lateinit var touchpadActions: TouchpadActions
+    private val pointerPosition = PointerPosition()
+    private lateinit var inputSettings: InputSettings
+    private lateinit var pointerButton: Button
+    private lateinit var sensitivityRow: View
+    private lateinit var sensitivitySeek: SeekBar
+    private lateinit var sensitivityValue: TextView
+
+    /** Sensibilité courante du touchpad, lue à chaque déplacement (pas de lecture du stockage sur le chemin tactile). */
+    @Volatile private var touchpadSensitivity = TouchpadActions.DEFAULT_SENSITIVITY
+
+    /** La session dont l'écran est affiché : un changement de session remet la position du pointeur à zéro. */
+    private var attachedSession: SessionInfo? = null
     private lateinit var touchInput: TouchInput
     private lateinit var immersive: ImmersiveController
     private lateinit var bar: View
@@ -105,14 +128,21 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         progress = findViewById(R.id.remote_progress)
         reconnect = findViewById(R.id.remote_reconnect)
 
-        // Le mappeur est remplacé à l'établissement de chaque session, selon la taille de l'écran distant.
-        actions = PointerActions(PointerMapper(FALLBACK_WIDTH, FALLBACK_HEIGHT), controller.input)
+        inputSettings = InputSettings(PreferencesStore(this, InputSettings.FILE_NAME))
+        touchpadSensitivity = inputSettings.touchpadSensitivity
+
+        // Les mappeurs sont remplacés à l'établissement de chaque session, selon la taille de l'écran distant.
+        val fallback = PointerMapper(FALLBACK_WIDTH, FALLBACK_HEIGHT)
+        actions = PointerActions(fallback, controller.input, pointerPosition)
+        touchpadActions = TouchpadActions(fallback, controller.input, pointerPosition) { touchpadSensitivity }
         touchInput = TouchInput(
             actions,
+            touchpadActions,
             ViewConfiguration.get(this).scaledTouchSlop.toFloat(),
             surface,
             onToggleBar = { toggleBar() }
         )
+        touchInput.setTouchpad(inputSettings.touchpad)
         surface.setOnTouchListener(touchInput)
 
         settings = DisplaySettings(PreferencesStore(this, DisplaySettings.FILE_NAME))
@@ -121,6 +151,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         fullscreenButton.setOnClickListener { toggleFullscreen() }
         updateFullscreenButton()
 
+        setUpPointerMode()
         setUpKeyboard()
 
         reconnect.setOnClickListener { askReconnect() }
@@ -133,6 +164,65 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
         immersive = ImmersiveController(ViewSystemUiHost(surface))
         surface.setOnSystemUiVisibilityChangeListener { immersive.onSystemUiVisibilityChange(it) }
+    }
+
+    /** Bouton Pointeur (mode direct / touchpad) et curseur de sensibilité (SS-045). */
+    private fun setUpPointerMode() {
+        pointerButton = findViewById(R.id.bar_pointer)
+        sensitivityRow = findViewById(R.id.remote_sensitivity)
+        sensitivitySeek = findViewById(R.id.sensitivity_seek)
+        sensitivityValue = findViewById(R.id.sensitivity_value)
+
+        sensitivitySeek.progress = progressOf(touchpadSensitivity)
+        updateSensitivityValue()
+        sensitivitySeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                touchpadSensitivity = sensitivityOf(progress)
+                updateSensitivityValue()
+            }
+
+            override fun onStartTrackingTouch(bar: SeekBar) = Unit
+
+            // Mémorisé au relâchement : une seule écriture par réglage, pas une par pixel du curseur.
+            override fun onStopTrackingTouch(bar: SeekBar) {
+                inputSettings.touchpadSensitivity = touchpadSensitivity
+            }
+        })
+        pointerButton.setOnClickListener { toggleTouchpad() }
+        updatePointerButton()
+    }
+
+    private fun toggleTouchpad() {
+        val enabled = !touchInput.isTouchpad
+        touchInput.setTouchpad(enabled) // annule le geste en cours : aucun bouton ne reste enfoncé
+        inputSettings.touchpad = enabled
+        updatePointerButton()
+        updateSensitivityRow()
+        Toast.makeText(this, if (enabled) R.string.touchpad_hint else R.string.direct_hint, Toast.LENGTH_LONG).show()
+    }
+
+    private fun updatePointerButton() {
+        pointerButton.setText(if (touchInput.isTouchpad) R.string.bar_pointer_touchpad else R.string.bar_pointer_direct)
+    }
+
+    /** Le curseur de sensibilité n'a de sens que pour le touchpad, et n'est montré qu'avec la barre de commandes. */
+    private fun updateSensitivityRow() {
+        sensitivityRow.visibility = if (bar.visibility == View.VISIBLE && touchInput.isTouchpad) View.VISIBLE else View.GONE
+    }
+
+    private fun updateSensitivityValue() {
+        sensitivityValue.text = getString(R.string.sensitivity_value, String.format(java.util.Locale.getDefault(), "%.1f", touchpadSensitivity))
+    }
+
+    private fun progressOf(sensitivity: Float): Int {
+        val range = TouchpadActions.MAX_SENSITIVITY - TouchpadActions.MIN_SENSITIVITY
+        return Math.round((sensitivity - TouchpadActions.MIN_SENSITIVITY) / range * SEEK_MAX)
+    }
+
+    private fun sensitivityOf(progress: Int): Float {
+        val range = TouchpadActions.MAX_SENSITIVITY - TouchpadActions.MIN_SENSITIVITY
+        return TouchpadActions.MIN_SENSITIVITY + progress.coerceIn(0, SEEK_MAX) * range / SEEK_MAX
     }
 
     /** Clavier virtuel (SS-046), touches physiques et rangée de touches spéciales (SS-047). */
@@ -185,7 +275,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     private fun enterKeyboardMode() {
         keyboardMode = true
-        bar.visibility = View.GONE // la rangée de touches prend la place en haut
+        showBar(false) // la rangée de touches prend la place en haut
         keys.visibility = View.VISIBLE
         applyImmersive()
         if (!keyboardView.showKeyboard()) Toast.makeText(this, R.string.keyboard_unavailable, Toast.LENGTH_LONG).show()
@@ -264,7 +354,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         settings.fullscreen = fullscreen
         updateFullscreenButton()
         if (fullscreen) {
-            bar.visibility = View.GONE // le plein écran ne s'applique que barre de commandes masquée
+            showBar(false) // le plein écran ne s'applique que barre de commandes masquée
             Toast.makeText(this, R.string.fullscreen_hint, Toast.LENGTH_LONG).show()
         }
         applyImmersive()
@@ -315,7 +405,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         reconnect.visibility = if (busy) View.GONE else View.VISIBLE
         reconnect.isEnabled = controller.lastConnection != null
-        bar.visibility = View.GONE
+        showBar(false)
         applyImmersive()
 
         status.text = when (state) {
@@ -331,7 +421,13 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     /** Affiche l'écran de la session établie et cale la conversion des touchers sur sa taille. */
     private fun attachSession() {
         val info = controller.session ?: return
-        actions.mapper = PointerMapper(info.framebuffer.width, info.framebuffer.height)
+        if (info !== attachedSession) {
+            attachedSession = info
+            pointerPosition.reset() // nouvelle session : le serveur ne dit pas où est son pointeur
+        }
+        val mapper = PointerMapper(info.framebuffer.width, info.framebuffer.height)
+        actions.mapper = mapper
+        touchpadActions.mapper = mapper
         surface.setFramebuffer(info.framebuffer)
     }
 
@@ -339,8 +435,13 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     private fun toggleBar() {
         if (controller.state != ConnectionState.CONNECTED) return
-        bar.visibility = if (bar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        showBar(bar.visibility != View.VISIBLE)
         applyImmersive()
+    }
+
+    private fun showBar(visible: Boolean) {
+        bar.visibility = if (visible) View.VISIBLE else View.GONE
+        updateSensitivityRow()
     }
 
     /** Ferme la session et revient à la liste des connexions. */
@@ -374,6 +475,8 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     }
 
     private companion object {
+        const val SEEK_MAX = 100
+
         // Taille avant la première session : celle de la tablette cible (nominale, AGENTS.md).
         const val FALLBACK_WIDTH = 1280
         const val FALLBACK_HEIGHT = 800

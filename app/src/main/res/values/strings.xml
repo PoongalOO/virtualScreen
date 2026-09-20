@@ -62,7 +62,12 @@
     <string name="remote_password_message">Le mot de passe n\'est pas conservé : saisissez-le pour vous reconnecter.</string>
     <string name="remote_password_ok">Reconnecter</string>
     <string name="bar_keyboard">Clavier</string>
-    <string name="bar_pointer">Pointeur</string>
+    <string name="bar_pointer_direct">Pointeur : direct</string>
+    <string name="bar_pointer_touchpad">Pointeur : touchpad</string>
+    <string name="touchpad_hint">Touchpad : glissez pour déplacer le pointeur, touchez pour cliquer, touchez puis glissez pour faire glisser, appui long pour le clic droit, deux doigts pour défiler.</string>
+    <string name="direct_hint">Direct : le doigt désigne le point de l\'écran distant.</string>
+    <string name="sensitivity_label">Sensibilité du touchpad</string>
+    <string name="sensitivity_value">%1$s×</string>
     <string name="bar_diagnostic">Diagnostic</string>
     <string name="keys_escape">Échap</string>
     <string name="keys_tab">Tab</string>

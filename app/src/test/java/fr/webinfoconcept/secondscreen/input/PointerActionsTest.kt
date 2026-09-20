@@ -552,4 +552,42 @@ class PointerActionsTest {
         p.client.close()
         assertEquals("aucun octet de plus", 0, p.receiveUntilEof().size)
     }
+
+    // =========================================================== position partagée (SS-045)
+
+    @Test
+    fun `the shared position follows the taps, the drags and the wheel, and only when something is sent`() {
+        val position = PointerPosition()
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out), position)
+
+        actions.onScrollStart(640f, 400f) // deux doigts posés, aucun cran encore
+        assertFalse("rien n'est parti : le pointeur distant n'a pas bougé", position.known)
+        actions.onScroll(0, 0)
+        assertFalse(position.known)
+
+        actions.onScroll(0, 1)
+        assertEquals(640 to 400, position.x to position.y)
+
+        actions.tap(100.5f, 200.5f)
+        assertEquals(100 to 200, position.x to position.y)
+        actions.rightClick(300f, 310f)
+        assertEquals(300 to 310, position.x to position.y)
+
+        actions.onDragStart(10f, 20f)
+        actions.onDragMove(50f, 60f)
+        assertEquals(50 to 60, position.x to position.y)
+        actions.onDragEnd(70f, 80f)
+        assertEquals(70 to 80, position.x to position.y)
+    }
+
+    @Test
+    fun `a tap outside the framebuffer does not change the shared position`() {
+        val position = PointerPosition()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(LinkedBlockingQueue()), position)
+
+        actions.tap(5000f, 5000f)
+
+        assertFalse(position.known)
+    }
 }

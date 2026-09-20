@@ -25,8 +25,11 @@ import fr.webinfoconcept.secondscreen.rfb.protocol.PointerButtons
  *
  * @param mapper taille du framebuffer distant ; à remplacer si elle change (redimensionnement).
  */
-class PointerActions(@Volatile var mapper: PointerMapper, private val sender: MessageSink) :
-    DragListener, ScrollListener {
+class PointerActions(
+    @Volatile var mapper: PointerMapper,
+    private val sender: MessageSink,
+    private val position: PointerPosition = PointerPosition()
+) : DragListener, ScrollListener {
 
     private val pixel = IntArray(2) // réutilisé : appelé depuis le seul thread UI
     private var dragging = false
@@ -42,6 +45,7 @@ class PointerActions(@Volatile var mapper: PointerMapper, private val sender: Me
      */
     fun tap(viewX: Float, viewY: Float): Boolean {
         if (!mapper.map(viewX, viewY, pixel)) return false
+        position.set(pixel[0], pixel[1])
         return sender.send(ClientMessages.leftClick(pixel[0], pixel[1]))
     }
 
@@ -52,6 +56,7 @@ class PointerActions(@Volatile var mapper: PointerMapper, private val sender: Me
      */
     fun rightClick(viewX: Float, viewY: Float): Boolean {
         if (!mapper.map(viewX, viewY, pixel)) return false
+        position.set(pixel[0], pixel[1])
         return sender.send(ClientMessages.rightClick(pixel[0], pixel[1]))
     }
 
@@ -64,16 +69,10 @@ class PointerActions(@Volatile var mapper: PointerMapper, private val sender: Me
     }
 
     override fun onScroll(clicksX: Int, clicksY: Int) {
-        if (!scrolling) return
-        sendWheel(clicksY, PointerButtons.WHEEL_DOWN, PointerButtons.WHEEL_UP)
-        sendWheel(clicksX, PointerButtons.WHEEL_RIGHT, PointerButtons.WHEEL_LEFT)
-    }
-
-    /** [clicks] > 0 : [positive] ; < 0 : [negative] ; 0 : rien. */
-    private fun sendWheel(clicks: Int, positive: Int, negative: Int) {
-        if (clicks == 0) return
-        val count = minOf(Math.abs(clicks), ClientMessages.MAX_WHEEL_CLICKS)
-        sender.sendMove(ClientMessages.wheel(if (clicks > 0) positive else negative, count, scrollPixelX, scrollPixelY))
+        if (!scrolling || (clicksX == 0 && clicksY == 0)) return
+        sendScroll(sender, clicksX, clicksY, scrollPixelX, scrollPixelY)
+        // Le pointeur distant n'est déplacé qu'à l'envoi d'un cran : deux doigts posés sans défiler ne le changent pas.
+        position.set(scrollPixelX, scrollPixelY)
     }
 
     override fun onDragStart(x: Float, y: Float) {
@@ -83,6 +82,7 @@ class PointerActions(@Volatile var mapper: PointerMapper, private val sender: Me
         dragging = true
         lastX = pixel[0]
         lastY = pixel[1]
+        position.set(pixel[0], pixel[1])
     }
 
     override fun onDragMove(x: Float, y: Float) {
@@ -93,6 +93,7 @@ class PointerActions(@Volatile var mapper: PointerMapper, private val sender: Me
         if (sender.sendMove(ClientMessages.pointerEvent(PointerButtons.LEFT, pixel[0], pixel[1]))) {
             lastX = pixel[0]
             lastY = pixel[1]
+            position.set(pixel[0], pixel[1])
         }
     }
 
@@ -101,6 +102,9 @@ class PointerActions(@Volatile var mapper: PointerMapper, private val sender: Me
         dragging = false
         // Position finale : celle du relâchement si elle est valide, sinon la dernière envoyée.
         val valid = mapper.mapClamped(x, y, pixel)
-        sender.send(ClientMessages.pointerEvent(0, if (valid) pixel[0] else lastX, if (valid) pixel[1] else lastY))
+        val px = if (valid) pixel[0] else lastX
+        val py = if (valid) pixel[1] else lastY
+        position.set(px, py)
+        sender.send(ClientMessages.pointerEvent(0, px, py))
     }
 }

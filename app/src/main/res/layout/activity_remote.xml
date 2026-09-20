@@ -42,8 +42,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:enabled="false"
-                android:text="@string/bar_pointer" />
+                android:text="@string/bar_pointer_direct" />
 
             <Button
                 android:id="@+id/bar_diagnostic"
@@ -70,6 +69,44 @@
                 android:text="@string/bar_disconnect" />
         </LinearLayout>
 
+
+        <!-- Sensibilité du touchpad (SS-045) : visible avec la barre de commandes, en mode touchpad seulement. -->
+        <LinearLayout
+            android:id="@+id/remote_sensitivity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/bar"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:labelFor="@+id/sensitivity_seek"
+                android:text="@string/sensitivity_label"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
+
+            <SeekBar
+                android:id="@+id/sensitivity_seek"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="16dp"
+                android:layout_marginRight="16dp"
+                android:layout_weight="1"
+                android:max="100" />
+
+            <TextView
+                android:id="@+id/sensitivity_value"
+                android:layout_width="56dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
+        </LinearLayout>
 
         <!-- Touches spéciales (SS-047) : visible tant que le mode clavier est actif. Ctrl, Alt et Maj sont des bascules
              « à un coup » : enfoncées jusqu'à la prochaine frappe. -->

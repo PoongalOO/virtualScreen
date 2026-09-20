@@ -172,7 +172,7 @@ class TouchGestureDetector(
     private val longPress: LongPress? = null,
     private val scroll: Scroll? = null,
     private val onTap: (x: Float, y: Float) -> Unit
-) {
+) : TouchGestures {
     init {
         require(slopPx >= 0f && !slopPx.isNaN()) { "slop invalide : $slopPx" }
         require(maxTapMs > 0) { "maxTapMs doit être > 0 : $maxTapMs" }
@@ -190,14 +190,10 @@ class TouchGestureDetector(
     private var lastX = 0f
     private var lastY = 0f
 
-    // Défilement : dernier centre des deux doigts et chemin cumulé pas encore converti en crans.
-    private var scrollX = 0f
-    private var scrollY = 0f
-    private var accumX = 0f
-    private var accumY = 0f
+    private val scrollTracker = scroll?.let { ScrollTracker(it) }
 
     /** `true` pendant un défilement à deux doigts. */
-    val isScrolling: Boolean
+    override val isScrolling: Boolean
         get() = state == State.SCROLLING
 
     /** `true` tant qu'un geste est un tap possible (doigt posé, pas encore de mouvement significatif). */
@@ -213,7 +209,7 @@ class TouchGestureDetector(
         get() = state == State.DRAGGING
 
     /** Premier doigt posé en ([x], [y]) à l'instant [timeMs] (horloge monotone, ms). */
-    fun onDown(x: Float, y: Float, timeMs: Long) {
+    override fun onDown(x: Float, y: Float, timeMs: Long) {
         endDragIfAny() // un relâchement perdu ne doit pas laisser le bouton enfoncé
         cancelLongPressTimer()
         state = State.PENDING
@@ -226,7 +222,7 @@ class TouchGestureDetector(
     }
 
     /** Le doigt bouge : au-delà du seuil ce n'est plus un tap, c'est un glissement (s'il y a un [dragListener]). */
-    fun onMove(x: Float, y: Float) {
+    override fun onMove(x: Float, y: Float) {
         if (!x.isFinite() || !y.isFinite()) return
         when (state) {
             State.PENDING -> if (!withinSlop(x, y)) startDrag(x, y)
@@ -242,53 +238,28 @@ class TouchGestureDetector(
      * [scroll]). Sinon se comporte comme [onSecondFingerDown] : le geste est abandonné et un glissement en cours est
      * relâché.
      */
-    fun onTwoFingersDown(centerX: Float, centerY: Float) {
-        val config = scroll
-        if (config == null || state != State.PENDING || !centerX.isFinite() || !centerY.isFinite()) {
+    override fun onTwoFingersDown(centerX: Float, centerY: Float) {
+        val tracker = scrollTracker
+        if (tracker == null || state != State.PENDING || !centerX.isFinite() || !centerY.isFinite()) {
             onSecondFingerDown()
             return
         }
         cancelLongPressTimer()
         state = State.SCROLLING
-        scrollX = centerX
-        scrollY = centerY
-        accumX = 0f
-        accumY = 0f
-        config.listener.onScrollStart(centerX, centerY)
+        tracker.start(centerX, centerY)
     }
 
     /** Le centre des deux doigts se déplace en ([centerX], [centerY]) : émet les crans de molette correspondants. */
-    fun onTwoFingersMove(centerX: Float, centerY: Float) {
-        val config = scroll ?: return
-        if (state != State.SCROLLING || !centerX.isFinite() || !centerY.isFinite()) return
-        accumX += centerX - scrollX
-        accumY += centerY - scrollY
-        scrollX = centerX
-        scrollY = centerY
-
-        // Un seul axe : celui du plus grand chemin cumulé ; l'autre est oublié (pas de dérapage latéral).
-        if (Math.abs(accumY) >= Math.abs(accumX)) accumX = 0f else accumY = 0f
-        val stepsX = (accumX / config.stepPx).toInt() // vers zéro
-        val stepsY = (accumY / config.stepPx).toInt()
-        if (stepsX == 0 && stepsY == 0) return
-        val limit = Scroll.MAX_CLICKS_PER_EVENT
-        // Un saut énorme (capteur, doigt qui glisse hors de la dalle) : on plafonne et on oublie le reste.
-        accumX = if (Math.abs(stepsX) > limit) 0f else accumX - stepsX * config.stepPx
-        accumY = if (Math.abs(stepsY) > limit) 0f else accumY - stepsY * config.stepPx
-
-        // Sens : « naturel » = le contenu suit les doigts, donc doigts vers le haut => molette vers le bas.
-        val sign = if (config.natural) -1 else 1
-        config.listener.onScroll(
-            (sign * stepsX).coerceIn(-limit, limit),
-            (sign * stepsY).coerceIn(-limit, limit)
-        )
+    override fun onTwoFingersMove(centerX: Float, centerY: Float) {
+        if (state != State.SCROLLING) return
+        scrollTracker?.move(centerX, centerY)
     }
 
     /**
      * Un doigt supplémentaire est posé sans qu'un défilement puisse commencer (troisième doigt, défilement non
      * reconnu) : ce n'est ni un tap ni un glissement ; un glissement ou un défilement en cours se termine.
      */
-    fun onSecondFingerDown() {
+    override fun onSecondFingerDown() {
         cancelLongPressTimer()
         endDragIfAny()
         state = State.IDLE
@@ -299,7 +270,7 @@ class TouchGestureDetector(
      * déplacement), ou émet le tap si le geste en est un.
      * @return `true` si un tap a été émis par cet appel.
      */
-    fun onUp(x: Float, y: Float, timeMs: Long): Boolean {
+    override fun onUp(x: Float, y: Float, timeMs: Long): Boolean {
         when (state) {
             State.IDLE -> return false
             State.LONG_PRESSED, State.SCROLLING -> {
@@ -337,7 +308,7 @@ class TouchGestureDetector(
     }
 
     /** Geste annulé (`ACTION_CANCEL`, perte du focus...) : jamais de tap ; un glissement en cours est relâché. */
-    fun onCancel() {
+    override fun onCancel() {
         cancelLongPressTimer()
         endDragIfAny()
         state = State.IDLE
