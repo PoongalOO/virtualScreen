@@ -102,21 +102,27 @@ Conséquence pour SS-041 (tap = clic) et SS-052 (barre de commandes) : la décis
 
 **Non vérifié** : le retournement de la tablette d'un paysage à l'autre. `sensorLandscape` suit le capteur et ignore le réglage de rotation forcée : mon essai avec `user_rotation` n'a jamais changé l'orientation, il n'établit donc rien.
 
-## Entrées (SS-040, SS-041)
+## Entrées (SS-040, SS-041, SS-042)
 
 ```text
-thread UI :  MotionEvent -> TouchInput -> TapDetector -> PointerActions -> PointerSender.send() (file bornée, non bloquant)
+thread UI :  MotionEvent -> TouchInput -> TouchGestureDetector -> PointerActions -> PointerSender.send() / sendMove() (file bornée, non bloquant)
                                                           (PointerMapper : pixel de la vue -> pixel du framebuffer)
 thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par appel)
 ```
 
 - **`PointerEvent`** (`ClientMessages.pointerEvent`, 6 octets : type 5, masque des boutons, x et y en U16 big-endian) : l'état des boutons est **absolu**, le serveur déduit appuis et relâchements en le comparant au précédent. Les valeurs hors plage sont refusées, jamais tronquées.
 - **Coordonnées** (`PointerMapper`) : le rendu est 1:1 ancré en (0, 0), donc `pixel = floor(coordonnée)` (arrondir au plus proche décalerait la cible d'un pixel une fois sur deux). Un toucher hors du framebuffer, ou non fini, n'est **pas** envoyé (pas de clic sur le pixel du bord). SS-033 (letterbox) devra ajouter ici décalage et rapport.
-- **Tap = clic gauche** (`TapDetector`) : le clic n'est émis qu'**au relâchement**, jamais à l'appui, afin qu'un appui qui devient un geste ne produise pas de clic gauche parasite. Pas de clic si le doigt bouge de plus du seuil de la plateforme (`scaledTouchSlop`), si le contact dure plus de 500 ms (délai d'appui long d'Android : la place de SS-043), si un deuxième doigt se pose (SS-044), ou si le système annule le geste. Un relâchement dupliqué ne clique pas deux fois.
+- **Tap = clic gauche** (`TouchGestureDetector`) : le clic n'est émis qu'**au relâchement**, jamais à l'appui, afin qu'un appui qui devient un geste ne produise pas de clic gauche parasite. Pas de clic si le doigt bouge de plus du seuil de la plateforme (`scaledTouchSlop` : c'est alors un glissement), si le contact dure plus de 500 ms (délai d'appui long d'Android : la place de SS-043), si un deuxième doigt se pose (SS-044), ou si le système annule le geste. Un relâchement dupliqué ne clique pas deux fois.
+- **Glissement = déplacement avec le bouton gauche maintenu** (SS-042, `TouchGestureDetector` + `PointerActions`). Quand le doigt dépasse le seuil, le bouton est enfoncé **là où le doigt s'est posé** (`ClientMessages.dragStart` : survol puis appui, 12 octets, un seul `write`), puis chaque déplacement envoie un `PointerEvent` bouton enfoncé, et le relâchement (`PointerEvent` masque 0) part à la fin. Garde-fous :
+  - **le bouton n'est jamais laissé enfoncé** : fin normale, `ACTION_CANCEL`, deuxième doigt, nouveau toucher après un relâchement perdu, perte du focus et pause de l'activité relâchent tous le bouton (`onDragEnd` est appelé exactement une fois par glissement, propriété vérifiée sur des suites d'événements aléatoires) ;
+  - **le relâchement se fait à la dernière position de déplacement, pas à celle de `ACTION_UP`** : le pointeur distant y est déjà. Mesuré sur la GT-P5110 : l'émulation `input swipe` d'Android 4.2 envoie un `ACTION_UP` à la position de départ, ce qui aurait ramené le pointeur au départ à chaque relâchement ;
+  - **pas d'appui fantôme** : si l'appui n'a pas pu être mis en file (départ hors du framebuffer, file pleine), tout le glissement est ignoré, car un déplacement bouton enfoncé serait interprété par le serveur comme un appui n'importe où ;
+  - **le doigt qui sort du cadre** ne casse pas le glissement : la position est **bornée** au framebuffer (`PointerMapper.mapClamped`) et le pointeur distant suit le bord ;
+  - un déplacement qui ne change pas le pixel visé n'envoie rien.
 - **Un clic = un seul message de 18 octets** (`ClientMessages.leftClick` : survol sans bouton, appui, relâchement, au même pixel), écrit en un seul `write` : l'appui n'est jamais envoyé sans son relâchement (bouton coincé côté serveur), ni entrelacé avec le battement Wi-Fi ou un autre message.
-- **`PointerSender`** : aucun accès réseau sur le thread UI. La file est bornée (64) : si la liaison se bloque, `send` refuse des messages **entiers** sans jamais attendre (mémoire bornée) ; une erreur d'écriture arrête l'envoyeur et est signalée une fois ; à l'arrêt, les messages en attente sont abandonnés (un clic tardif serait pire qu'un clic perdu).
+- **`PointerSender`** : aucun accès réseau sur le thread UI. La file est bornée (64) : si la liaison se bloque, `send` refuse des messages **entiers** sans jamais attendre (mémoire bornée) ; une erreur d'écriture arrête l'envoyeur et est signalée une fois ; à l'arrêt, les messages en attente sont abandonnés (un clic tardif serait pire qu'un clic perdu). **Deux priorités** : les messages d'état (appui, relâchement, clic, via `send`) ne doivent pas se perdre, les déplacements (`sendMove`) sont remplaçables ; ces derniers ne sont acceptés que tant qu'il reste de la place pour les premiers (un quart de la file est réservé). Sur une liaison lente on perd des déplacements, jamais le relâchement.
 
-**Provisoire** : `RemoteActivity` n'est pas encore reliée à un serveur (SS-054). Elle emprunte le chemin réel jusqu'à la file d'envoi, mais l'écriture finale ne fait que compter les clics ; SS-054 y branchera `PointerSender.forSocket`.
+**Provisoire** : `RemoteActivity` n'est pas encore reliée à un serveur (SS-054). Elle emprunte le chemin réel jusqu'à la file d'envoi, mais l'écriture finale ne fait que compter les messages ; SS-054 y branchera `PointerSender.forSocket`.
 
 **Conséquence du mode immersif** (voir plus haut) : sur Android 4.2, le premier toucher après chaque remasquage de la barre est perdu, et la barre réapparue intercepte les touchers des 48 lignes du bas pendant 3 s. Ce n'est pas un défaut de l'envoi des entrées, mais l'utilisateur le verra comme un clic manquant : la décision sur le remasquage automatique reste ouverte.
 
@@ -126,12 +132,19 @@ thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par a
 |---|---|
 | Vrai serveur TigerVNC (Xtigervnc 1280×800), `xev` comme témoin indépendant, 8 clics dont les coins (0,0) et (1279,799), et 3 clics d'affilée sans pause | **8 appuis et 8 relâchements bouton 1**, positions exactes, aucun événement en trop ; 2 touchers hors cadre : aucun événement |
 | GT-P5110, vrais `MotionEvent` (`adb shell input`) : tap | **1 clic**, coordonnées exactes, écrit par le thread `secondscreen-input` (barre non interposée) |
-| GT-P5110 : balayage court (60 px) et long (200 px) | **0 clic** |
+| GT-P5110 : balayage court (60 px) et long (200 px) | **0 clic** (c'est un glissement, voir plus bas) |
 | GT-P5110 : tap, balayage, tap | 2 clics (celui du balayage n'existe pas) |
 | GT-P5110 : deux taps simultanés au même point | 2 clics |
 | Barre système réapparue : toucher dans les 48 lignes du bas | intercepté par la barre, 0 clic (limite d'Android 4.2 ci-dessus) |
 
-**Non vérifié sur l'appareil** : l'appui long et le deuxième doigt. `input` d'Android 4.2 ne sait ni tenir un appui ni simuler deux doigts ; ces cas ne sont couverts que par les tests unitaires de `TapDetector` (durée, second doigt, annulation), pas par de vrais `MotionEvent`. Rien n'a non plus été mesuré côté serveur depuis la tablette : la chaîne serveur a été vérifiée depuis la JVM avec le même code, la chaîne tactile depuis la tablette sans serveur.
+| Vrai serveur TigerVNC + `xev`, glissement (200,300)→(600,500) en 20 pas | 1 appui bouton 1 en (200,300), 20 déplacements **état bouton 1 maintenu** (`state 0x100`) aux positions exactes, 1 relâchement en (600,500) |
+| Idem, glissement qui sort du cadre par la droite, relâché à x=1500 | pointeur **borné à x=1279**, relâchement en (1279,100) |
+| Idem, glissement annulé par le système (`onCancel`) | relâchement à la dernière position (220,140) : **bouton non coincé** |
+| Idem, tap juste après le glissement annulé | exactement 1 appui et 1 relâchement |
+| GT-P5110, vrais `MotionEvent`, `input swipe` (horizontal 200 px, diagonal 1100×600, vers le bord droit) | 1 appui au point de départ exact, 10 à 11 déplacements bouton enfoncé, 1 relâchement (à la dernière position de déplacement), envoyés par le thread `secondscreen-input` |
+| GT-P5110 : tap, glissement, tap enchaînés | clic, glissement complet, clic ; aucun message en trop |
+
+**Non vérifié sur l'appareil** : l'appui long et le deuxième doigt (y compris un deuxième doigt posé pendant un glissement, et la perte de focus en plein glissement). `input` d'Android 4.2 ne sait ni tenir un appui ni simuler deux doigts ; ces cas ne sont couverts que par les tests unitaires de `TouchGestureDetector` (durée, second doigt, annulation, relâchement garanti) et par la simulation d'un serveur (`ShadowServer`), pas par de vrais `MotionEvent`. Le glissement de la tablette est celui de `input swipe` (300 ms, ~10 déplacements) : la cadence d'un vrai doigt (60 à 120 déplacements par seconde) n'a pas été mesurée sur l'appareil ; côté file d'envoi, la charge est testée (2 000 déplacements sur une liaison bloquée) mais pas avec un serveur réel qui ralentit. Rien n'a non plus été mesuré côté serveur depuis la tablette : la chaîne serveur a été vérifiée depuis la JVM avec le même code, la chaîne tactile depuis la tablette sans serveur.
 
 ## Réseau (SS-064)
 

@@ -33,6 +33,9 @@ object ClientMessages {
     /** Longueur de [leftClick] : trois `PointerEvent`. */
     const val LEFT_CLICK_LENGTH = 3 * POINTER_EVENT_LENGTH
 
+    /** Longueur de [dragStart] : deux `PointerEvent`. */
+    const val DRAG_START_LENGTH = 2 * POINTER_EVENT_LENGTH
+
     /**
      * Intervalle du message de battement, en ms (voir [keepAliveRequest]). Mesuré : jusqu'à 400 ms la latence
      * médiane tombe à ~5 ms ; à 100 ms seuls 2 % des paquets dépassent 50 ms (contre 8 à 18 % à 200-400 ms).
@@ -123,6 +126,19 @@ object ClientMessages {
         writePointerEvent(message, 0, 0, x, y)
         writePointerEvent(message, POINTER_EVENT_LENGTH, PointerButtons.LEFT, x, y)
         writePointerEvent(message, 2 * POINTER_EVENT_LENGTH, 0, x, y)
+        return message
+    }
+
+    /**
+     * Début d'un glissement (SS-042) en **un seul message** de [DRAG_START_LENGTH] octets : le pointeur arrive sans
+     * bouton (survol) puis le bouton gauche est enfoncé, au même pixel. Le glissement se poursuit avec
+     * `pointerEvent(PointerButtons.LEFT, x, y)` à chaque déplacement et se termine par `pointerEvent(0, x, y)`
+     * (relâchement) : sans ce dernier message le serveur garderait le bouton enfoncé.
+     */
+    fun dragStart(x: Int, y: Int): ByteArray {
+        val message = ByteArray(DRAG_START_LENGTH)
+        writePointerEvent(message, 0, 0, x, y)
+        writePointerEvent(message, POINTER_EVENT_LENGTH, PointerButtons.LEFT, x, y)
         return message
     }
 

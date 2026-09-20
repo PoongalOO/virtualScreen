@@ -13,6 +13,10 @@ import java.util.concurrent.ArrayBlockingQueue
  *
  * - **File pleine** (liaison bloquée) : [send] refuse le message et retourne `false` ; il n'attend jamais et la
  *   mémoire reste bornée. On perd des messages entiers, jamais la moitié d'un clic.
+ * - **Deux priorités** (SS-042). Les messages *d'état* ([send] : appui, relâchement, clic) ne doivent pas se perdre,
+ *   sinon le serveur garde un bouton enfoncé. Les *déplacements* ([sendMove]) sont remplaçables : le suivant les
+ *   corrige. Ils ne sont acceptés que tant qu'il reste de la place pour les messages d'état (le quart de la file est
+ *   réservé), donc une liaison lente perd des déplacements, jamais un relâchement.
  * - **Erreur d'écriture** (socket fermée) : le thread s'arrête et [onError] est appelé **une seule fois** ; ensuite
  *   [send] retourne `false`. Le contrôleur de connexion décide de la suite.
  * - **Arrêt** : les messages encore en file sont abandonnés (un clic tardif serait pire qu'un clic perdu). Un
@@ -35,6 +39,7 @@ class PointerSender(
     }
 
     private val queue = ArrayBlockingQueue<ByteArray>(capacity)
+    private val stateReserve = maxOf(1, capacity / 4)
     private val lock = Any()
     private var worker: Thread? = null
     private var dropped = 0L
@@ -43,7 +48,7 @@ class PointerSender(
     val isRunning: Boolean
         get() = synchronized(lock) { worker != null }
 
-    /** Nombre de messages refusés parce que la file était pleine depuis la création. */
+    /** Nombre de messages refusés ([send] ou [sendMove]) parce que la file était pleine depuis la création. */
     val droppedCount: Long
         get() = synchronized(lock) { dropped }
 
@@ -85,6 +90,20 @@ class PointerSender(
         synchronized(lock) {
             if (worker == null) return false
             if (queue.offer(message)) return true
+            dropped++
+            return false
+        }
+    }
+
+    /**
+     * Met en file un message de **déplacement** ([message] : `PointerEvent` bouton inchangé). Refusé, sans attendre,
+     * dès que la file n'a plus que la place réservée aux messages d'état de [send].
+     * @return `false` si l'envoyeur est arrêté ou si le déplacement a été abandonné.
+     */
+    fun sendMove(message: ByteArray): Boolean {
+        synchronized(lock) {
+            if (worker == null) return false
+            if (queue.remainingCapacity() > stateReserve && queue.offer(message)) return true
             dropped++
             return false
         }

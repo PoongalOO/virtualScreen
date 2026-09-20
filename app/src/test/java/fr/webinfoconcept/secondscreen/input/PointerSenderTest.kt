@@ -101,6 +101,37 @@ class PointerSenderTest {
     }
 
     @Test(timeout = 10_000)
+    fun `moves are dropped first - a quarter of the queue stays reserved for state messages`() {
+        val release = CountDownLatch(1)
+        val entered = CountDownLatch(1)
+        val written = LinkedBlockingQueue<ByteArray>()
+        val s = sender(capacity = 8) { entered.countDown(); release.await(); written += it }
+        s.start()
+        s.send(msg(0))
+        assertTrue(entered.await(5, TimeUnit.SECONDS)) // l'écriture est bloquée, la file (8) est vide
+
+        val acceptedMoves = (1..100).count { s.sendMove(msg(it)) }
+        val acceptedState = (1..2).count { s.send(msg(1000 + it)) } // la réserve : 8 / 4 = 2 places
+
+        assertEquals("6 déplacements (8 - réserve de 2)", 6, acceptedMoves)
+        assertEquals("les 2 messages d'état passent malgré la file de déplacements pleine", 2, acceptedState)
+        assertEquals(94, s.droppedCount.toInt())
+        release.countDown()
+        // ordre conservé : 0, les 6 déplacements, puis les 2 messages d'état
+        val expected = listOf(0, 1, 2, 3, 4, 5, 6, 1001, 1002)
+        for (n in expected) assertArrayEquals(msg(n), written.poll(5, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun `sendMove is refused when stopped and never blocks`() {
+        val s = sender { }
+        assertFalse(s.sendMove(msg(1)))
+        s.start()
+        s.stop()
+        assertFalse(s.sendMove(msg(1)))
+    }
+
+    @Test(timeout = 10_000)
     fun `a write failure stops the sender and reports the error once`() {
         val errors = AtomicInteger()
         val error = AtomicReference<Throwable>()

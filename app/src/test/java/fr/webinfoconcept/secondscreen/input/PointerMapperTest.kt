@@ -90,4 +90,45 @@ class PointerMapperTest {
         assertThrows(IllegalArgumentException::class.java) { PointerMapper(65536, 800) }
         assertThrows(IllegalArgumentException::class.java) { PointerMapper(1280, 65536) }
     }
+
+    // ------------------------------------------------------------ mapClamped (glissement)
+
+    private fun clamped(x: Float, y: Float): IntArray? {
+        val out = intArrayOf(-7, -7)
+        return if (mapper.mapClamped(x, y, out)) out else null
+    }
+
+    @Test
+    fun `clamped mapping agrees with the strict one inside the framebuffer`() {
+        assertArrayEquals(intArrayOf(639, 400), clamped(639.9f, 400.2f))
+        assertArrayEquals(intArrayOf(0, 0), clamped(0f, 0f))
+        assertArrayEquals(intArrayOf(1279, 799), clamped(1279.99f, 799.99f))
+    }
+
+    @Test
+    fun `clamped mapping sticks to the nearest edge outside the framebuffer`() {
+        assertArrayEquals(intArrayOf(0, 400), clamped(-50f, 400f))
+        assertArrayEquals(intArrayOf(1279, 400), clamped(5000f, 400f))
+        assertArrayEquals(intArrayOf(10, 0), clamped(10f, -0.5f))
+        assertArrayEquals(intArrayOf(10, 799), clamped(10f, 800f))
+        assertArrayEquals(intArrayOf(1279, 799), clamped(Math.nextUp(1280f), 1e9f))
+        assertArrayEquals(intArrayOf(0, 0), clamped(-1e9f, -1e9f))
+    }
+
+    @Test
+    fun `clamped mapping still refuses non finite values and leaves the output untouched`() {
+        assertEquals(null, clamped(Float.NaN, 10f))
+        assertEquals(null, clamped(10f, Float.NaN))
+        assertEquals(null, clamped(Float.POSITIVE_INFINITY, 10f))
+        assertEquals(null, clamped(10f, Float.NEGATIVE_INFINITY))
+    }
+
+    @Test
+    fun `clamped mapping never leaves the U16 range for any finite input`() {
+        val out = IntArray(2)
+        for (v in listOf(-Float.MAX_VALUE, -1e30f, -1f, 0f, 1279.5f, 1280f, 1e30f, Float.MAX_VALUE)) {
+            assertTrue(mapper.mapClamped(v, v, out))
+            assertTrue(out[0] in 0..1279 && out[1] in 0..799)
+        }
+    }
 }

@@ -4,9 +4,10 @@ import android.view.MotionEvent
 import android.view.View
 
 /**
- * Relie les événements tactiles de la vue distante au serveur (SS-041) : un tap devient un clic gauche.
+ * Relie les événements tactiles de la vue distante au serveur (SS-041, SS-042) : un tap devient un clic gauche, un
+ * glissement un déplacement avec le bouton gauche maintenu.
  *
- * Adaptateur minimal de `MotionEvent` vers [TapDetector] : toute la logique est dans ce dernier, testé sur la JVM.
+ * Adaptateur minimal de `MotionEvent` vers [TouchGestureDetector] : toute la logique est dans ce dernier, testé sur la JVM.
  * Seules des API disponibles dès l'API 1 sont utilisées (`getActionMasked`, API 8).
  *
  * - `ACTION_DOWN` : premier doigt ; `ACTION_POINTER_DOWN` : doigt supplémentaire (annule le tap) ;
@@ -23,7 +24,13 @@ import android.view.View
  */
 class TouchInput(private val actions: PointerActions, slopPx: Float) : View.OnTouchListener {
 
-    private val detector = TapDetector(slopPx) { x, y -> actions.tap(x, y) }
+    private val detector = TouchGestureDetector(slopPx, dragListener = actions) { x, y -> actions.tap(x, y) }
+
+    /**
+     * Abandonne le geste en cours : un glissement est relâché côté serveur. À appeler quand la vue cesse de recevoir
+     * les événements (perte du focus, mise en pause) : Android n'envoie pas toujours `ACTION_CANCEL` alors.
+     */
+    fun cancelGesture() = detector.onCancel()
 
     override fun onTouch(view: View, event: MotionEvent): Boolean {
         when (event.actionMasked) {

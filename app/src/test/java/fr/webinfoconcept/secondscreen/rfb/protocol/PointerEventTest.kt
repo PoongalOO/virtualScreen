@@ -80,6 +80,34 @@ class PointerEventTest {
     }
 
     @Test
+    fun `drag start is hover then press in one 12-byte array, without release`() {
+        val start = ClientMessages.dragStart(640, 400)
+
+        assertEquals(ClientMessages.DRAG_START_LENGTH, start.size)
+        assertEquals(12, start.size)
+        assertArrayEquals(hex("05 00 0280 0190   05 01 0280 0190"), start)
+    }
+
+    @Test
+    fun `a full drag on the wire is start, moves with the button held, then release`() {
+        val stream = ClientMessages.dragStart(10, 20) +
+            ClientMessages.pointerEvent(PointerButtons.LEFT, 30, 40) +
+            ClientMessages.pointerEvent(PointerButtons.LEFT, 50, 60) +
+            ClientMessages.pointerEvent(0, 50, 60)
+
+        assertArrayEquals(
+            hex("05 00 000a 0014  05 01 000a 0014  05 01 001e 0028  05 01 0032 003c  05 00 0032 003c"),
+            stream
+        )
+    }
+
+    @Test
+    fun `drag start refuses out-of-range coordinates`() {
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.dragStart(-1, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.dragStart(0, 65536) }
+    }
+
+    @Test
     fun `left click refuses out-of-range coordinates`() {
         assertThrows(IllegalArgumentException::class.java) { ClientMessages.leftClick(-1, 0) }
         assertThrows(IllegalArgumentException::class.java) { ClientMessages.leftClick(0, 65536) }

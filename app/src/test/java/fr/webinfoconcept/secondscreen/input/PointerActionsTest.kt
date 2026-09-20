@@ -12,7 +12,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
- * Chaîne complète d'un tap (SS-040, SS-041), sans Android : événements tactiles -> [TapDetector] -> [PointerActions]
+ * Chaîne complète d'un tap (SS-040, SS-041), sans Android : événements tactiles -> [TouchGestureDetector] -> [PointerActions]
  * -> [PointerSender] -> vraie socket. Ce que le « serveur » reçoit est comparé octet par octet.
  */
 class PointerActionsTest {
@@ -75,7 +75,7 @@ class PointerActionsTest {
     fun `touch gestures reach the server as exactly the expected clicks`() = LoopbackPair().use { p ->
         val sender = PointerSender.forSocket(p.client).also { it.start(); senders += it }
         val actions = PointerActions(PointerMapper(1280, 800), sender)
-        val detector = TapDetector(8f) { x, y -> actions.tap(x, y) }
+        val detector = TouchGestureDetector(8f) { x, y -> actions.tap(x, y) }
 
         // 1. tap franc en (100, 200) -> un clic
         detector.onDown(100f, 200f, 0); detector.onUp(100f, 200f, 70)
@@ -95,5 +95,228 @@ class PointerActionsTest {
         sender.stop()
         p.client.close()
         assertEquals("aucun octet de plus", 0, p.receiveUntilEof().size)
+    }
+
+    // =========================================================== glissement (SS-042)
+
+    /**
+     * Serveur simulé : rejoue un flux de `PointerEvent` et vérifie à chaque message la cohérence de l'état du
+     * bouton gauche. Un déplacement bouton enfoncé sans appui préalable serait, pour un vrai serveur, un appui
+     * fantôme : c'est le cas que ce simulateur refuse.
+     */
+    private class ShadowServer {
+        var buttonDown = false
+        var x = -1
+        var y = -1
+        val presses = mutableListOf<Pair<Int, Int>>()
+        val releases = mutableListOf<Pair<Int, Int>>()
+        val positions = mutableListOf<Pair<Int, Int>>()
+
+        fun feed(stream: ByteArray) {
+            assertEquals("flux non multiple de 6 octets", 0, stream.size % 6)
+            for (i in stream.indices step 6) {
+                assertEquals("type de message", 5, stream[i].toInt())
+                val mask = stream[i + 1].toInt() and 0xFF
+                x = ((stream[i + 2].toInt() and 0xFF) shl 8) or (stream[i + 3].toInt() and 0xFF)
+                y = ((stream[i + 4].toInt() and 0xFF) shl 8) or (stream[i + 5].toInt() and 0xFF)
+                assertTrue("masque inattendu : $mask", mask == 0 || mask == 1)
+                val down = mask == 1
+                if (down && !buttonDown) presses += x to y
+                if (!down && buttonDown) releases += x to y
+                buttonDown = down
+                positions += x to y
+            }
+        }
+    }
+
+    private fun collected(out: LinkedBlockingQueue<ByteArray>): ByteArray {
+        val all = java.io.ByteArrayOutputStream()
+        while (true) all.write(out.poll(200, TimeUnit.MILLISECONDS) ?: break)
+        return all.toByteArray()
+    }
+
+    @Test(timeout = 10_000)
+    fun `a drag is press at the landing pixel, moves with the button held, release at the end pixel`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onDragStart(100.4f, 200.7f)
+        actions.onDragMove(130.2f, 200.7f)
+        actions.onDragMove(180.9f, 240.1f)
+        actions.onDragEnd(181.5f, 241.5f)
+
+        // le relâchement porte lui-même la position finale : pas de déplacement supplémentaire avant lui
+        val expected = ClientMessages.dragStart(100, 200) +
+            ClientMessages.pointerEvent(1, 130, 200) +
+            ClientMessages.pointerEvent(1, 180, 240) +
+            ClientMessages.pointerEvent(0, 181, 241)
+        val stream = collected(out)
+        assertArrayEquals(expected, stream)
+        val server = ShadowServer().also { it.feed(stream) }
+        assertEquals(listOf(100 to 200), server.presses)
+        assertEquals(listOf(181 to 241), server.releases)
+        assertFalse(server.buttonDown)
+    }
+
+    @Test(timeout = 10_000)
+    fun `moves that stay on the same pixel send nothing`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onDragStart(100f, 100f)
+        actions.onDragMove(100.2f, 100.9f) // même pixel que le départ
+        actions.onDragMove(150f, 100f)
+        actions.onDragMove(150.5f, 100.5f) // même pixel que le précédent
+        actions.onDragEnd(150.5f, 100.5f)
+
+        val stream = collected(out)
+        assertArrayEquals(
+            ClientMessages.dragStart(100, 100) + ClientMessages.pointerEvent(1, 150, 100) + ClientMessages.pointerEvent(0, 150, 100),
+            stream
+        )
+    }
+
+    @Test(timeout = 10_000)
+    fun `a finger leaving the framebuffer keeps dragging along the edge and releases on it`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onDragStart(1200f, 700f)
+        actions.onDragMove(1400f, 900f)   // hors cadre : bornée à (1279, 799)
+        actions.onDragEnd(-20f, 900f)     // relâché hors cadre : (0, 799)
+
+        val stream = collected(out)
+        assertArrayEquals(
+            ClientMessages.dragStart(1200, 700) + ClientMessages.pointerEvent(1, 1279, 799) + ClientMessages.pointerEvent(0, 0, 799),
+            stream
+        )
+    }
+
+    @Test(timeout = 10_000)
+    fun `a drag that starts outside the framebuffer sends nothing at all, moves and end included`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onDragStart(1500f, 10f)
+        actions.onDragMove(600f, 10f)
+        actions.onDragMove(700f, 20f)
+        actions.onDragEnd(700f, 20f)
+
+        assertEquals("aucun octet : un déplacement bouton enfoncé serait un appui fantôme", 0, collected(out).size)
+    }
+
+    @Test
+    fun `a drag whose press could not be queued sends nothing`() {
+        val sender = PointerSender { }.also { senders += it } // arrêté : refuse tout
+        val actions = PointerActions(PointerMapper(1280, 800), sender)
+
+        actions.onDragStart(10f, 10f)
+        actions.onDragMove(50f, 50f)
+        actions.onDragEnd(50f, 50f)
+
+        assertEquals(0L, sender.droppedCount)
+        assertFalse(sender.isRunning)
+    }
+
+    @Test(timeout = 10_000)
+    fun `an end without a start sends nothing and two ends send one release`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        actions.onDragEnd(10f, 10f)
+        actions.onDragStart(10f, 10f)
+        actions.onDragEnd(20f, 20f)
+        actions.onDragEnd(20f, 20f)
+
+        val server = ShadowServer().also { it.feed(collected(out)) }
+        assertEquals(1, server.presses.size)
+        assertEquals(1, server.releases.size)
+    }
+
+    @Test(timeout = 20_000)
+    fun `on a stuck link moves are dropped but the press and the release always get through, in order`() {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val out = LinkedBlockingQueue<ByteArray>()
+        val sender = PointerSender(capacity = 16) { entered.countDown(); release.await(); out += it }
+            .also { it.start(); senders += it }
+        val actions = PointerActions(PointerMapper(1280, 800), sender)
+
+        actions.tap(5f, 5f) // occupe l'écriture, qui se bloque
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        actions.onDragStart(100f, 100f)
+        for (i in 1..2000) actions.onDragMove(100f + (i % 1000) * 0.5f + i / 1000f, 100f + i % 600) // liaison bloquée
+        actions.onDragEnd(700f, 500f)
+        release.countDown()
+
+        val stream = collected(out)
+        val server = ShadowServer()
+        server.feed(stream.copyOfRange(ClientMessages.LEFT_CLICK_LENGTH, stream.size)) // après le clic bloqué
+        assertEquals("appui au départ", listOf(100 to 100), server.presses)
+        assertEquals("relâchement à la position finale", listOf(700 to 500), server.releases)
+        assertFalse("jamais de bouton resté enfoncé", server.buttonDown)
+        assertTrue("des déplacements ont été abandonnés", sender.droppedCount > 1_000)
+    }
+
+    @Test(timeout = 10_000)
+    fun `the whole drag path over a real socket ends with the button released`() = LoopbackPair().use { p ->
+        val sender = PointerSender.forSocket(p.client).also { it.start(); senders += it }
+        val actions = PointerActions(PointerMapper(1280, 800), sender)
+        val detector = TouchGestureDetector(8f, dragListener = actions) { x, y -> actions.tap(x, y) }
+
+        // tap, glissement, tap, glissement annulé par le système
+        detector.onDown(10f, 10f, 0); detector.onUp(10f, 10f, 60)
+        detector.onDown(300f, 300f, 200); detector.onMove(340f, 320f); detector.onMove(400f, 380f); detector.onUp(410f, 390f, 500)
+        detector.onDown(20f, 30f, 800); detector.onUp(20f, 30f, 860)
+        detector.onDown(600f, 100f, 1_000); detector.onMove(650f, 120f); detector.onCancel()
+
+        val expected = ClientMessages.leftClick(10, 10) +
+            ClientMessages.dragStart(300, 300) + ClientMessages.pointerEvent(1, 340, 320) +
+            ClientMessages.pointerEvent(1, 400, 380) + ClientMessages.pointerEvent(0, 400, 380) +
+            ClientMessages.leftClick(20, 30) +
+            ClientMessages.dragStart(600, 100) + ClientMessages.pointerEvent(1, 650, 120) + ClientMessages.pointerEvent(0, 650, 120)
+        val stream = p.receiveExactly(expected.size)
+        assertArrayEquals(expected, stream)
+        val server = ShadowServer().also { it.feed(stream) }
+        assertFalse(server.buttonDown)
+        assertEquals(4, server.presses.size)
+        assertEquals(4, server.releases.size)
+        sender.stop()
+        p.client.close()
+        assertEquals(0, p.receiveUntilEof().size)
+    }
+
+    /**
+     * Propriété de bout en bout : quelle que soit la suite d'événements tactiles (au hasard, valides ou non), le
+     * serveur simulé voit un flux cohérent (aucun déplacement bouton enfoncé sans appui : voir [ShadowServer]) et,
+     * une fois le geste terminé ou annulé, le bouton est relâché avec autant de relâchements que d'appuis.
+     */
+    @Test(timeout = 60_000)
+    fun `random touch sequences drained completely end with as many releases as presses`() {
+        val rnd = java.util.Random(11)
+        repeat(150) { seq ->
+            val out = LinkedBlockingQueue<ByteArray>()
+            val sender = PointerSender(capacity = 4096) { out += it }.also { it.start(); senders += it }
+            val actions = PointerActions(PointerMapper(1280, 800), sender)
+            val d = TouchGestureDetector(8f, dragListener = actions) { x, y -> actions.tap(x, y) }
+            var t = 0L
+            repeat(120) {
+                t += rnd.nextInt(400)
+                val x = (rnd.nextInt(1500) - 100).toFloat()
+                val y = (rnd.nextInt(1000) - 100).toFloat()
+                when (rnd.nextInt(6)) {
+                    0 -> d.onDown(x, y, t)
+                    1, 2 -> d.onMove(x, y)
+                    3 -> d.onUp(x, y, t)
+                    4 -> d.onSecondFingerDown()
+                    else -> d.onCancel()
+                }
+            }
+            d.onCancel()
+            val stream = collected(out)
+            val server = ShadowServer().also { it.feed(stream) }
+            assertFalse("séquence $seq : bouton resté enfoncé", server.buttonDown)
+            assertEquals("séquence $seq", server.presses.size, server.releases.size)
+        }
     }
 }

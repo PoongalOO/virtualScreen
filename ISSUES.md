@@ -82,7 +82,7 @@ Coordonnées exactes et état bouton. *(Fait : `ClientMessages.pointerEvent`, `P
 Down/up fiables sans double événement. **À prendre en compte (mesuré en SS-034) :** sur Android 4.2, quand la barre système est masquée, le premier toucher qui la fait réapparaître n'est pas transmis à l'application ; voir ARCHITECTURE.md, « Mode immersif ».
 
 ### SS-042 — Drag — P0
-Déplacement avec bouton maintenu.
+Déplacement avec bouton maintenu. *(Fait : `TouchGestureDetector` + `DragListener`, `PointerActions`, `ClientMessages.dragStart`, `PointerSender.sendMove` ; le bouton n'est jamais laissé enfoncé. Le branchement à la vraie connexion est SS-054.)*
 
 ### SS-043 — Appui long = clic droit — P1
 Seuil configurable et absence de clic gauche parasite.

@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Écran distant : héberge le [RemoteSurfaceView] en plein écran (SS-030, SS-031, SS-032, SS-034) et transmet les taps
- * comme clics gauche (SS-040, SS-041).
+ * comme clics gauche et les glissements comme déplacements bouton enfoncé (SS-040, SS-041, SS-042).
  *
  * **Provisoire** : en attendant la connexion réelle (SS-054), affiche un motif de test ([RenderTestPattern]) et, si
  * [EXTRA_ANIMATE] est demandé, y déplace un carré avec [RenderTestDriver], qui emprunte le même chemin que le
@@ -36,7 +36,8 @@ class RemoteActivity : Activity() {
     private lateinit var immersive: ImmersiveController
     private var driver: RenderTestDriver? = null
     private var pointerSender: PointerSender? = null
-    private val clicksSent = AtomicInteger()
+    private var touchInput: TouchInput? = null
+    private val messagesSent = AtomicInteger()
 
     // setOnSystemUiVisibilityChangeListener est déprécié depuis l'API 30 mais reste le seul moyen sur Android 4.2.
     @Suppress("DEPRECATION")
@@ -52,10 +53,12 @@ class RemoteActivity : Activity() {
         }
 
         // Provisoire : l'écriture finale compte les messages au lieu de les envoyer (voir la doc de la classe).
-        val sender = PointerSender { clicksSent.incrementAndGet() }
+        val sender = PointerSender { messagesSent.incrementAndGet() }
         pointerSender = sender
         val actions = PointerActions(PointerMapper(framebuffer.width, framebuffer.height), sender)
-        surface.setOnTouchListener(TouchInput(actions, ViewConfiguration.get(this).scaledTouchSlop.toFloat()))
+        val input = TouchInput(actions, ViewConfiguration.get(this).scaledTouchSlop.toFloat())
+        touchInput = input
+        surface.setOnTouchListener(input)
 
         immersive = ImmersiveController(ViewSystemUiHost(surface))
         surface.setOnSystemUiVisibilityChangeListener { immersive.onSystemUiVisibilityChange(it) }
@@ -67,6 +70,12 @@ class RemoteActivity : Activity() {
         driver?.start()
     }
 
+    override fun onPause() {
+        // Un glissement en cours est relâché tant que l'envoyeur tourne encore (il s'arrête dans onStop).
+        touchInput?.cancelGesture()
+        super.onPause()
+    }
+
     override fun onStop() {
         driver?.let {
             it.stop()
@@ -75,7 +84,7 @@ class RemoteActivity : Activity() {
         }
         pointerSender?.let {
             it.stop()
-            Log.i(TAG, "entrées de test : ${clicksSent.get()} clic(s) traité(s), ${it.droppedCount} perdu(s)")
+            Log.i(TAG, "entrées de test : ${messagesSent.get()} message(s) traité(s), ${it.droppedCount} perdu(s)")
         }
         super.onStop()
     }
@@ -83,6 +92,7 @@ class RemoteActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) immersive.enable() else immersive.disable()
+        if (!hasFocus) touchInput?.cancelGesture() // le système n'envoie pas toujours ACTION_CANCEL
     }
 
     override fun onDestroy() {

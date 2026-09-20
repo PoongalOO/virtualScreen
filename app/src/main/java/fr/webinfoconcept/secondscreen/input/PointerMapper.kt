@@ -31,6 +31,25 @@ class PointerMapper(val width: Int, val height: Int) {
         return true
     }
 
+    /**
+     * Comme [map] mais **borne** la position au framebuffer au lieu de la refuser : pour un glissement en cours, dont
+     * le doigt peut sortir du cadre (marge noire, bord de l'écran) sans que le glissement doive s'interrompre ; le
+     * pointeur distant reste alors sur le bord.
+     * @return `false` (et [out] inchangé) seulement si une coordonnée n'est pas un nombre fini.
+     */
+    fun mapClamped(viewX: Float, viewY: Float, out: IntArray): Boolean {
+        if (!viewX.isFinite() || !viewY.isFinite()) return false
+        out[0] = clampToPixel(viewX, width)
+        out[1] = clampToPixel(viewY, height)
+        return true
+    }
+
+    private fun clampToPixel(v: Float, size: Int): Int = when {
+        v <= 0f -> 0
+        v >= size -> size - 1
+        else -> minOf(v.toInt(), size - 1)
+    }
+
     companion object {
         /** Les coordonnées d'un `PointerEvent` sont des U16 : un framebuffer plus grand n'est pas adressable. */
         const val MAX_DIMENSION = 65535
