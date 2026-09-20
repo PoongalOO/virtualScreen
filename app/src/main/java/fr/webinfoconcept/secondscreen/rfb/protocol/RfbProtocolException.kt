@@ -63,4 +63,15 @@ sealed class RfbProtocolException(message: String) : IOException(message) {
     /** Longueur annoncée du nom du bureau supérieure à [InitExchange.MAX_NAME_LENGTH]. */
     class InvalidDesktopName(val announcedLength: Long) :
         RfbProtocolException("Nom du bureau distant trop long ($announcedLength octets)")
+
+    /**
+     * Le chiffrement DES requis par VNC Authentication est indisponible sur cet appareil
+     * (aucun fournisseur JCA). Problème local, pas du serveur.
+     */
+    class DesUnavailable(cause: Throwable) :
+        RfbProtocolException("Le chiffrement DES nécessaire à l'authentification VNC est indisponible") {
+        init {
+            initCause(cause)
+        }
+    }
 }

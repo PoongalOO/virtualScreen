@@ -31,11 +31,19 @@ Le comportement diffère selon la version négociée (RFC 6143 §7.1.2) :
 | `SecurityResult` (U32, 0 = OK, 1 = échec) | toujours, y compris pour `None` | sauf pour `None` |
 | Raison en cas d'échec | oui (U32 longueur + texte) | non |
 
-Types gérés : `None` (1) ; VNC Authentication (2) s'ajoute en implémentant `SecurityHandler` (SS-014), sans modifier la négociation. Les autres types (Tight, TLS, etc.) donnent `NoSupportedSecurityType` avec la liste proposée.
+Types gérés : `None` (1) et VNC Authentication (2, voir ci-dessous), chacun un `SecurityHandler`. Les autres types (Tight, TLS, etc.) donnent `NoSupportedSecurityType` avec la liste proposée.
 
 Le serveur est une entrée non fiable : le texte de raison est lu sur **256 octets au plus** quelle que soit la longueur annoncée (U32), puis assaini (ASCII imprimable, le reste devient `?`). Il est exposé dans `reason` des erreurs `ConnectionRejected` / `AuthenticationFailed`, jamais dans leur message. Un serveur qui coupe sans envoyer de raison donne une raison vide plutôt qu'une erreur réseau. Toute erreur ferme la socket.
 
 `None` ne doit servir que sur un LAN de développement de confiance (voir SECURITY.md).
+
+### VNC Authentication (SS-014)
+
+Type 2. Le serveur envoie un challenge de 16 octets ; le client renvoie ce challenge chiffré en **DES-ECB** (deux blocs de 8 octets indépendants) avec pour clé le mot de passe **tronqué à 8 caractères, complété de zéros, chaque octet en miroir binaire** (bit 0 ↔ bit 7, particularité historique de VNC). Le `SecurityResult` est ensuite lu par la négociation de sécurité. DES vient de `javax.crypto` (aucune dépendance) ; sa disponibilité et son résultat ont été vérifiés sur la GT-P5110 (Android 4.2.2) contre OpenSSL.
+
+- Le mot de passe est une suite de caractères Latin-1 (U+0000..U+00FF), 1 à 8 significatifs ; au-delà, le surplus est ignoré comme le font les serveurs. Un caractère hors Latin-1 dans les 8 premiers est refusé (`IllegalArgumentException`, sans citer le caractère).
+- Mauvais mot de passe : `AuthenticationFailed` (avec la raison du serveur en 3.8, vide en 3.3).
+- **Faiblesse connue** : DES, 8 caractères au plus, challenge/réponse attaquable hors ligne, et session **non chiffrée**. À réserver à un LAN de confiance ; hors LAN, passer par un VPN ou un tunnel (SECURITY.md). L'avertissement affiché à l'utilisateur relève de SS-072.
 
 ### ClientInit / ServerInit (SS-013)
 
