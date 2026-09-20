@@ -83,6 +83,11 @@
     <string name="keys_right">→</string>
     <string name="keys_hide">Masquer</string>
     <string name="keyboard_unavailable">Aucun clavier Android n\'a pu s\'afficher. Les touches de la barre restent utilisables.</string>
+    <string name="bar_scale_native">Échelle : 1:1</string>
+    <string name="bar_scale_fit">Échelle : ajustée</string>
+    <string name="bar_scale_auto">Échelle : ajustée (auto)</string>
+    <string name="scale_hint_fit">Ajusté : l\'écran distant tient en entier, avec des bandes noires. Le texte est un peu moins net.</string>
+    <string name="scale_hint_native">1:1 : chaque pixel de l\'écran distant est un pixel de la tablette. Sans plein écran, les 48 lignes du bas sont cachées.</string>
     <string name="bar_fullscreen">Plein écran</string>
     <string name="bar_fullscreen_exit">Quitter le plein écran</string>
     <string name="fullscreen_hint">Plein écran : l\'écran distant est affiché en entier. Le premier toucher après quelques secondes d\'inactivité est perdu (Android 4.2). La touche Retour ouvre la barre.</string>

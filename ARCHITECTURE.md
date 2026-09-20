@@ -79,6 +79,46 @@ thread I/O : décodeur écrit les pixels -> rectangleListener (zone modifiée) -
 
 L'image est dessinée en (0, 0), **sans mise à l'échelle** : filtrage désactivé, `Bitmap.DENSITY_NONE` (sans quoi Android peut redimensionner selon la densité), surface en `RGBX_8888` (le tampon par défaut d'un `SurfaceView` ancien est en 16 bits). `RenderGeometry` dit si le rendu est natif, tronqué ou entouré de noir. `RemoteActivity` est en `sensorLandscape` (les deux paysages).
 
+### Mise à l'échelle avec bandes noires (SS-033)
+
+Le rendu 1:1 ci-dessus reste **la règle pour la résolution cible** : on ne met à l'échelle que quand il le faut, parce que toute mise à l'échelle floute un peu le texte.
+
+| Écran distant | Surface | Rendu |
+|---|---|---|
+| 1280×800 | 1280×800 | **natif 1:1**, rien de perdu |
+| 1280×800 | plus petite (barre système, 1280×752) | 1:1 **rogné** (les 48 lignes du bas), *sauf* si l'utilisateur choisit « Échelle : ajustée » |
+| **pas** 1280×800 (1920×1080, 1024×768...) | quelconque, sauf de la même taille | **ajusté**, ratio conservé, centré, **bandes noires** ; rien n'est rogné |
+| n'importe quelle taille identique à la surface | | natif 1:1 |
+
+- **Géométrie** (`RenderGeometry`, pure) : `scale = min(surface.w / image.w, surface.h / image.h)`, image de `round(taille × scale)` centrée. Vérifié sur 5 000 tailles aléatoires : l'image tient dans la surface, son ratio est conservé à un pixel près, elle est centrée à un pixel près et touche un bord au moins ; un écran petit est agrandi, un grand réduit. Exemples : 1920×1080 dans 1280×800 → échelle 0,667, image 1280×720, bandes de 40 lignes ; 1024×768 → 1,0417, image 1067×800, bandes de 106 colonnes.
+- **Option « Échelle »** (bouton de la barre de commandes, mémorisé : `DisplaySettings.fitToScreen`) : ajuste **aussi** un écran distant en 1280×800, par exemple pour voir ses 48 dernières lignes sans passer en plein écran (échelle 0,94, image 1203×752). Pour un écran distant qui n'est pas en 1280×800 le bouton affiche « Échelle : ajustée (auto) » et est désactivé : l'ajustement y est toujours actif.
+- **Rendu** (`RemoteSurfaceView`) : le Bitmap contient toujours le framebuffer entier à jour ; seule la zone modifiée y est recopiée. Une mise à jour partielle redessine **la zone modifiée à l'écran** (boîte englobante élargie d'un pixel du framebuffer pour le filtre, arrondie vers l'extérieur) en dessinant le Bitmap entier avec la même `Matrix` **découpé** à cette zone : chaque pixel est calculé comme lors d'un rendu complet, donc **sans couture**. Filtrage bilinéaire pour ce chemin seulement ; le chemin 1:1 n'interpole jamais et n'a pas changé.
+- **Touchers** (`PointerMapper`) : la conversion relit la géométrie à chaque appel (sans verrou : `RemoteSurfaceView.geometry` est lisible sans prendre le verrou de rendu, sinon un dessin en cours bloquerait le thread UI à chaque événement tactile). Un toucher dans une bande noire n'est pas converti ; pendant un glissement, `mapClamped` le ramène au bord de l'image.
+- **Touchpad** : la sensibilité s'entend **à l'écran** : le déplacement en pixels du framebuffer est divisé par l'échelle, pour que le pointeur parcoure visuellement la même distance quelle que soit l'échelle.
+
+**Vérifié**
+
+| Vérification | Résultat |
+|---|---|
+| JVM, 21 nouveaux tests (géométrie 9 dont une propriété sur 5 000 tailles, conversion des touchers 8, touchpad 2, réglage 2) ; trois mutations de la conversion (décalage ignoré, bandes acceptées, échelle inversée) | échouent |
+| GT-P5110, vrai TigerVNC **1920×1080** (fenêtre rouge en haut à gauche 316×82, bleue en bas à droite, fond blanc), surface 1280×752 : mesure de la capture (pixel à pixel) | image **1280×720 décalée de 16 lignes** ; bandes noires nettes ; rouge (1..210, 17..70) et bleu (1069..1278, 681..734) exactement aux positions calculées (316×82 → 210×54) |
+| Idem, touchers à 6 points | (100,100) → **(150,126)**, (700,300) → (1050,426), (1200,650) → (1800,951), (1279,16) → (1918,0), (300,17) → (450,1) : exacts ; toucher dans la bande du haut ou du bas : **aucun événement** |
+| Idem, image après ~8 mises à jour partielles **comparée** à l'image après recréation de la surface (rendu complet) | **0 pixel de différence** : pas de couture |
+| GT-P5110, serveur 1280×800, bouton « Échelle » | 1:1 : fenêtre bleue rognée en bas (717..751) ; ajusté : entière (944..1239 × 674..750, échelle 0,94) ; toucher (700,300) → **(704,319)** ; bande gauche : aucun événement ; le réglage est mémorisé (nouvelle session ajustée d'emblée) |
+| Idem, touchpad en image ajustée | +164 px du framebuffer pour 100 px de doigt à 1,5× et l'échelle 0,94 (~160 attendu) |
+
+**Coût mesuré sur la GT-P5110** (sonde temporaire, retirée) — rendu ajusté d'un écran 1920×1080 dans 1280×752 :
+
+| Cas | Temps par rendu |
+|---|---|
+| petites mises à jour (~30 000 px, une horloge) | **~25 ms** (≈ 40 rendus/s) |
+| grande zone en continu (terminal de ~400 000 px qui défile) | **~55 ms** (≈ 18 rendus/s) |
+| rendu complet (surface entière) | **~200 ms** |
+
+Suffisant pour du texte et des applications de bureau, pas pour de la vidéo plein écran. Aucune optimisation n'a été tentée (AGENTS.md : pas d'optimisation sans mesure justifiée) ; ces chiffres sont le point de départ de SS-060/SS-062 pour le chemin ajusté. **Non mesuré** : le coût du chemin 1:1 en plein écran, et l'ajustement d'un serveur 1920×1200 (la taille maximale acceptée), qui pèse 9,2 Mio de Bitmap plus 9,2 Mio de framebuffer.
+
+**Non vérifié** : un serveur Windows ; la netteté du texte réduit (jugée à l'œil seulement sur les captures : bilinéaire sans pré-filtrage, un facteur inférieur à 0,5 crénèlerait) ; le retournement physique de la tablette avec une image ajustée.
+
 ### Mode immersif (SS-034)
 
 `ui/ImmersiveController` masque la barre d'état et la barre de navigation avec des drapeaux compatibles API 17 (`HIDE_NAVIGATION`, `FULLSCREEN`, `LOW_PROFILE` et les trois `LAYOUT_*`, qui font que la barre **recouvre** l'image au lieu de redimensionner la surface). La logique est testable sans Android (`SystemUiHost`).
@@ -112,7 +152,7 @@ thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par a
 ```
 
 - **`PointerEvent`** (`ClientMessages.pointerEvent`, 6 octets : type 5, masque des boutons, x et y en U16 big-endian) : l'état des boutons est **absolu**, le serveur déduit appuis et relâchements en le comparant au précédent. Les valeurs hors plage sont refusées, jamais tronquées.
-- **Coordonnées** (`PointerMapper`) : le rendu est 1:1 ancré en (0, 0), donc `pixel = floor(coordonnée)` (arrondir au plus proche décalerait la cible d'un pixel une fois sur deux). Un toucher hors du framebuffer, ou non fini, n'est **pas** envoyé (pas de clic sur le pixel du bord). SS-033 (letterbox) devra ajouter ici décalage et rapport.
+- **Coordonnées** (`PointerMapper`) : le rendu est 1:1 ancré en (0, 0), donc `pixel = floor(coordonnée)` (arrondir au plus proche décalerait la cible d'un pixel une fois sur deux). Un toucher hors du framebuffer, ou non fini, n'est **pas** envoyé (pas de clic sur le pixel du bord). Avec une image mise à l'échelle (SS-033), `pixel = floor((coordonnée − décalage) / échelle)` et un toucher dans une bande noire n'est pas envoyé non plus (voir « Mise à l'échelle »).
 - **Tap = clic gauche** (`TouchGestureDetector`) : le clic n'est émis qu'**au relâchement**, jamais à l'appui, afin qu'un appui qui devient un geste ne produise pas de clic gauche parasite. Pas de clic si le doigt bouge de plus du seuil de la plateforme (`scaledTouchSlop` : c'est alors un glissement), si le contact atteint le seuil d'appui long (c'est alors un clic droit, voir plus bas), si un deuxième doigt se pose (c'est alors un défilement, voir plus bas), ou si le système annule le geste. Un relâchement dupliqué ne clique pas deux fois.
 - **Appui long = clic droit** (SS-043, `LongPress` + `TouchGestureDetector`). Un doigt qui reste dans le seuil de mouvement pendant le seuil d'appui long envoie **un seul clic droit** (`ClientMessages.rightClick` : survol, appui du bouton droit — masque 4 —, relâchement, un seul message de 18 octets), **puis le reste du geste est ignoré** : ni tap ni glissement, donc **aucun clic gauche parasite** au relâchement, même si le doigt bouge ensuite.
   - **Seuil configurable** : `LongPress.thresholdMs`, de 200 à 3 000 ms. Par défaut celui de la plateforme (`ViewConfiguration.getLongPressTimeout()`, 500 ms), donc le réglage d'accessibilité « délai d'appui prolongé » de l'utilisateur s'applique. Il est lu à la création de l'activité : un changement de réglage demande de rouvrir l'écran distant. Un réglage propre à l'application (SS-05x) n'existe pas encore.

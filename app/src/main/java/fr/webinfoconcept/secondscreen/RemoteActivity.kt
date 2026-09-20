@@ -96,6 +96,8 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     private lateinit var progress: ProgressBar
     private lateinit var reconnect: Button
     private lateinit var fullscreenButton: Button
+    private lateinit var scaleButton: Button
+    private var fitToScreen = false
     private lateinit var keys: View
     private lateinit var keyboardView: KeyboardInputView
     private lateinit var keyboard: KeyboardInput
@@ -132,7 +134,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         touchpadSensitivity = inputSettings.touchpadSensitivity
 
         // Les mappeurs sont remplacés à l'établissement de chaque session, selon la taille de l'écran distant.
-        val fallback = PointerMapper(FALLBACK_WIDTH, FALLBACK_HEIGHT)
+        val fallback = PointerMapper(FALLBACK_WIDTH, FALLBACK_HEIGHT) { surface.geometry }
         actions = PointerActions(fallback, controller.input, pointerPosition)
         touchpadActions = TouchpadActions(fallback, controller.input, pointerPosition) { touchpadSensitivity }
         touchInput = TouchInput(
@@ -147,6 +149,11 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
         settings = DisplaySettings(PreferencesStore(this, DisplaySettings.FILE_NAME))
         fullscreen = settings.fullscreen
+        fitToScreen = settings.fitToScreen
+        surface.fitToScreen = fitToScreen
+        scaleButton = findViewById(R.id.bar_scale)
+        scaleButton.setOnClickListener { toggleScale() }
+        updateScaleButton()
         fullscreenButton = findViewById(R.id.bar_fullscreen)
         fullscreenButton.setOnClickListener { toggleFullscreen() }
         updateFullscreenButton()
@@ -360,6 +367,32 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         applyImmersive()
     }
 
+    /**
+     * Bascule l'ajustement à l'écran (SS-033), mémorisé. Un écran distant qui n'est pas en 1280×800 est toujours ajusté :
+     * le réglage ne change alors rien et le bouton l'indique.
+     */
+    private fun toggleScale() {
+        val nominal = surface.geometry?.isNominalFrame ?: true
+        if (!nominal) return
+        fitToScreen = !fitToScreen
+        settings.fitToScreen = fitToScreen
+        surface.fitToScreen = fitToScreen
+        updateScaleButton()
+        Toast.makeText(this, if (fitToScreen) R.string.scale_hint_fit else R.string.scale_hint_native, Toast.LENGTH_LONG).show()
+    }
+
+    private fun updateScaleButton() {
+        val nominal = surface.geometry?.isNominalFrame ?: true
+        scaleButton.isEnabled = nominal
+        scaleButton.setText(
+            when {
+                !nominal -> R.string.bar_scale_auto
+                fitToScreen -> R.string.bar_scale_fit
+                else -> R.string.bar_scale_native
+            }
+        )
+    }
+
     private fun updateFullscreenButton() {
         fullscreenButton.setText(if (fullscreen) R.string.bar_fullscreen_exit else R.string.bar_fullscreen)
     }
@@ -425,10 +458,12 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
             attachedSession = info
             pointerPosition.reset() // nouvelle session : le serveur ne dit pas où est son pointeur
         }
-        val mapper = PointerMapper(info.framebuffer.width, info.framebuffer.height)
+        // La géométrie est relue à chaque toucher : une nouvelle taille de surface ou un changement d'échelle suffisent.
+        val mapper = PointerMapper(info.framebuffer.width, info.framebuffer.height) { surface.geometry }
         actions.mapper = mapper
         touchpadActions.mapper = mapper
         surface.setFramebuffer(info.framebuffer)
+        updateScaleButton() // dépend de la taille de l'écran distant
     }
 
     // ------------------------------------------------------------------ actions

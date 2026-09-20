@@ -68,7 +68,7 @@ Mises à jour visibles sans allocation massive par frame.
 Aucun scaling sur résolution native.
 
 ### SS-033 — Ajouter scaling letterbox — P2
-Ratio conservé pour serveur non 1280×800.
+Ratio conservé pour serveur non 1280×800. *(Fait : `RenderGeometry` (échelle, décalage, bandes), rendu partiel sans couture dans `RemoteSurfaceView`, conversion des touchers dans `PointerMapper`, option « Échelle » de la barre de commandes qui ajuste aussi un 1280×800 (voir les 48 lignes du bas sans plein écran). Le 1:1 exact reste la règle pour 1280×800. Coût mesuré sur la tablette : ~25 ms par petite mise à jour, ~55 ms par grande zone, ~200 ms plein écran.)*
 
 ### SS-034 — Mode immersif compatible API 17 — P1
 Masquer au maximum le chrome système sans bloquer la sortie de l'application. *(Devenu un **mode plein écran explicite**, bouton de la barre de commandes, faux par défaut : voir ARCHITECTURE.md, « Plein écran ». Sur Android 4.2 le mode immersif perd le premier toucher après quelques secondes d'inactivité.)*

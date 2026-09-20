@@ -3,6 +3,7 @@ package fr.webinfoconcept.secondscreen.render
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -46,6 +47,17 @@ import fr.webinfoconcept.secondscreen.rfb.protocol.RectangleListener
  * [geometry] dit si le rendu est natif (1:1 exact), tronqué ou entouré de noir. Le centrage et la mise à l'échelle
  * pour un serveur qui n'est pas en 1280×800 relèvent de SS-033.
  *
+ * ## Mise à l'échelle avec bandes noires (SS-033)
+ * Quand l'écran distant n'est pas en 1280×800 (ou que [fitToScreen] est demandé), l'image est **ajustée avec son ratio
+ * conservé**, centrée, avec des bandes noires ([RenderGeometry]). Le rendu 1:1 ci-dessus reste inchangé pour la résolution
+ * cible : la mise à l'échelle ne s'applique que dans les cas ci-dessus.
+ * - le Bitmap contient toujours **le framebuffer entier à jour** ; seule la zone modifiée y est recopiée, comme en 1:1 ;
+ * - une mise à jour partielle ne redessine que **la zone modifiée à l'écran** (la boîte englobante, élargie d'un pixel du
+ *   framebuffer pour le filtrage, puis arrondie vers l'extérieur) : le Bitmap entier est dessiné avec la même
+ *   `Matrix` **découpé** à cette zone, donc chaque pixel est calculé exactement comme lors d'un rendu complet, sans
+ *   couture entre la zone redessinée et le reste ;
+ * - le filtrage bilinéaire n'est activé que pour ce chemin ; le chemin 1:1 n'interpole jamais.
+ *
  * **Écran allumé** : c'est un moniteur ; tant que la vue est affichée l'écran ne s'éteint pas ([setKeepScreenOn]).
  */
 class RemoteSurfaceView @JvmOverloads constructor(
@@ -63,13 +75,23 @@ class RemoteSurfaceView @JvmOverloads constructor(
     private var surfaceWidth = 0
     private var surfaceHeight = 0
     private var needsFullRedraw = true
-    private var currentGeometry: RenderGeometry? = null
+    @Volatile private var currentGeometry: RenderGeometry? = null // écrit sous renderLock, lu sans verrou (chemin tactile)
+    private var fitRequested = false
 
     // Réutilisés à chaque image : aucune allocation par rendu.
     private val takenBounds = IntArray(4)
     private val lockRect = Rect()
+    private val imageRect = Rect()
+    private val matrix = Matrix()
     private val paint = Paint().apply {
         isFilterBitmap = false // jamais d'interpolation : un pixel source = un pixel écran
+        isDither = false
+        isAntiAlias = false
+    }
+
+    // Filtrage bilinéaire pour l'image mise à l'échelle uniquement.
+    private val scaledPaint = Paint().apply {
+        isFilterBitmap = true
         isDither = false
         isAntiAlias = false
     }
@@ -95,7 +117,24 @@ class RemoteSurfaceView @JvmOverloads constructor(
      * qu'il n'y a ni framebuffer ni surface.
      */
     val geometry: RenderGeometry?
-        get() = synchronized(renderLock) { currentGeometry }
+        get() = currentGeometry
+
+    /**
+     * Ajuster à l'écran, avec bandes noires et ratio conservé, **même** un écran distant en 1280×800 (SS-033). Faux par
+     * défaut : un 1280×800 est alors dessiné pixel pour pixel, rogné si la surface est plus petite. Un écran distant qui
+     * n'est pas en 1280×800 est toujours ajusté.
+     */
+    var fitToScreen: Boolean
+        get() = synchronized(renderLock) { fitRequested }
+        set(value) {
+            synchronized(renderLock) {
+                if (fitRequested == value) return
+                fitRequested = value
+                needsFullRedraw = true
+                updateGeometry()
+                renderLocked()
+            }
+        }
 
     /**
      * Définit le framebuffer à afficher (ou `null` pour n'afficher que du noir) et le redessine en entier si la
@@ -138,6 +177,12 @@ class RemoteSurfaceView @JvmOverloads constructor(
         // Un Bitmap neuf est vide : il faut alors y recopier tout le framebuffer. À décider AVANT de choisir la zone.
         if (fb != null) ensureBitmap(fb)
 
+        val geo = currentGeometry
+        if (fb != null && region != null && geo != null && geo.isScaled) {
+            renderScaledLocked(fb, region, geo)
+            return
+        }
+
         // Zone à dessiner : tout l'écran, ou la zone modifiée.
         if (fb == null || region == null) {
             if (!needsFullRedraw) return
@@ -168,6 +213,51 @@ class RemoteSurfaceView @JvmOverloads constructor(
                     canvas.drawBitmap(bmp, lockRect, lockRect, paint)
                 }
             }
+            needsFullRedraw = false
+        } finally {
+            holder.unlockCanvasAndPost(canvas)
+        }
+    }
+
+    /**
+     * Rendu mis à l'échelle (SS-033) : voir la description de la classe. Appelé avec [renderLock] tenu, [ensureBitmap] déjà fait.
+     */
+    private fun renderScaledLocked(fb: Framebuffer, region: DirtyRegion, geo: RenderGeometry) {
+        val bmp = bitmap ?: return
+        val full = needsFullRedraw
+        if (full) {
+            region.clear() // le rendu complet couvre déjà tout ce qui était en attente
+            lockRect.set(0, 0, surfaceWidth, surfaceHeight)
+            bmp.setPixels(fb.pixels, 0, fb.width, 0, 0, fb.width, fb.height)
+        } else {
+            if (!region.take(takenBounds)) return
+            val l = maxOf(0, takenBounds[0])
+            val t = maxOf(0, takenBounds[1])
+            val r = minOf(fb.width, takenBounds[2])
+            val b = minOf(fb.height, takenBounds[3])
+            if (r <= l || b <= t) return
+            bmp.setPixels(fb.pixels, t * fb.width + l, fb.width, l, t, r - l, b - t)
+            // Zone de l'écran touchée : la boîte élargie d'un pixel du framebuffer (le filtre bilinéaire lit les voisins),
+            // arrondie vers l'extérieur, limitée à l'image.
+            val s = geo.scale
+            val left = Math.floor((geo.destLeft + (l - 1) * s).toDouble()).toInt()
+            val top = Math.floor((geo.destTop + (t - 1) * s).toDouble()).toInt()
+            val right = Math.ceil((geo.destLeft + (r + 1) * s).toDouble()).toInt()
+            val bottom = Math.ceil((geo.destTop + (b + 1) * s).toDouble()).toInt()
+            imageRect.set(geo.destLeft, geo.destTop, geo.destLeft + geo.destWidth, geo.destTop + geo.destHeight)
+            lockRect.set(maxOf(left, imageRect.left), maxOf(top, imageRect.top), minOf(right, imageRect.right), minOf(bottom, imageRect.bottom))
+            if (lockRect.isEmpty) return
+        }
+
+        val canvas = holder.lockCanvas(lockRect) ?: return
+        try {
+            // lockCanvas peut avoir agrandi lockRect : c'est la zone que l'on doit réellement repeindre. Le canvas est déjà
+            // découpé à cette zone : dessiner le Bitmap entier ne calcule que les pixels qu'elle contient.
+            imageRect.set(geo.destLeft, geo.destTop, geo.destLeft + geo.destWidth, geo.destTop + geo.destHeight)
+            if (full || !imageRect.contains(lockRect)) canvas.drawColor(Color.BLACK) // bandes noires
+            matrix.setScale(geo.scale, geo.scale)
+            matrix.postTranslate(geo.destLeft.toFloat(), geo.destTop.toFloat())
+            canvas.drawBitmap(bmp, matrix, scaledPaint)
             needsFullRedraw = false
         } finally {
             holder.unlockCanvasAndPost(canvas)
@@ -218,7 +308,7 @@ class RemoteSurfaceView @JvmOverloads constructor(
 
     private fun updateGeometry() {
         val fb = framebuffer
-        currentGeometry = if (fb == null) null else RenderGeometry(fb.width, fb.height, surfaceWidth, surfaceHeight)
+        currentGeometry = if (fb == null) null else RenderGeometry(fb.width, fb.height, surfaceWidth, surfaceHeight, fitRequested)
     }
 
     /**

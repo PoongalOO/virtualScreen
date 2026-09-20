@@ -8,7 +8,8 @@ import fr.webinfoconcept.secondscreen.rfb.protocol.PointerButtons
  * `déplacement du doigt × sensibilité`, et envoie clics, glissements et molette à cet endroit. Thread UI ; ne bloque jamais.
  *
  * - **Sensibilité** ([sensitivity], relue à chaque déplacement : un réglage change l'effet immédiatement) : facteur entre le
- *   déplacement du doigt et celui du pointeur. Bornée à [MIN_SENSITIVITY]..[MAX_SENSITIVITY]. Pas d'accélération : le
+ *   déplacement du doigt et celui du pointeur **à l'écran** (avec une image mise à l'échelle, le déplacement en pixels du
+ *   framebuffer est divisé par le rapport d'échelle : le pointeur parcourt visuellement la même distance). Bornée à [MIN_SENSITIVITY]..[MAX_SENSITIVITY]. Pas d'accélération : le
  *   pointeur suit le doigt proportionnellement.
  * - **Sous-pixel** : la position est un nombre décimal ; un déplacement de 0,4 pixel n'est pas perdu, il s'ajoute au suivant.
  *   On n'envoie que quand le pixel change.
@@ -42,9 +43,11 @@ class TouchpadActions(
         if (!dx.isFinite() || !dy.isFinite()) return
         val m = mapper
         syncFromPosition(m)
-        val s = sensitivity().coerceIn(MIN_SENSITIVITY, MAX_SENSITIVITY)
-        fx = clamp(fx + dx * s, m.width)
-        fy = clamp(fy + dy * s, m.height)
+        // Distance parcourue à l'écran = déplacement du doigt × sensibilité, quelle que soit l'échelle de l'image (SS-033) :
+        // en pixels du framebuffer cela fait diviser par le rapport écran/framebuffer.
+        val k = sensitivity().coerceIn(MIN_SENSITIVITY, MAX_SENSITIVITY) / m.viewScale
+        fx = clamp(fx + dx * k, m.width)
+        fy = clamp(fy + dy * k, m.height)
         val px = fx.toInt()
         val py = fy.toInt()
         if (position.known && px == position.x && py == position.y) return // même pixel : rien à envoyer

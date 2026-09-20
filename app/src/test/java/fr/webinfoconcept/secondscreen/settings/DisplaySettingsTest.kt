@@ -53,4 +53,27 @@ class DisplaySettingsTest {
     fun `the file is separate from the connection profiles`() {
         assertTrue(DisplaySettings.FILE_NAME != fr.webinfoconcept.secondscreen.profile.PreferencesStore.FILE_NAME)
     }
+
+    @Test
+    fun `fit to screen is off by default and remembered independently of fullscreen`() {
+        val store = MemoryStore()
+        assertFalse(DisplaySettings(store).fitToScreen)
+
+        DisplaySettings(store).fitToScreen = true
+        assertTrue(DisplaySettings(store).fitToScreen)
+        assertFalse("indépendant du plein écran", DisplaySettings(store).fullscreen)
+
+        DisplaySettings(store).fullscreen = true
+        DisplaySettings(store).fitToScreen = false
+        assertTrue(DisplaySettings(store).fullscreen)
+        assertFalse(DisplaySettings(store).fitToScreen)
+        assertEquals(setOf("fullscreen", "fit_to_screen"), store.data.keys)
+    }
+
+    @Test
+    fun `only an exact true means fit to screen`() {
+        for (garbage in listOf("", "TRUE", "1", "yes", "true ")) {
+            assertFalse("« $garbage »", DisplaySettings(MemoryStore(mapOf("fit_to_screen" to garbage))).fitToScreen)
+        }
+    }
 }

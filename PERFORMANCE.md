@@ -101,6 +101,18 @@ Le contrôle final sans trafic revient au niveau initial : l'effet vient du batt
 - **le PC est lui aussi en Wi-Fi avec l'économie d'énergie activée** (`iw dev wlan0 get power_save` : `on`), en 5,2 GHz à −69 dBm, alors que la tablette est en 2,4 GHz. Les pings n'isolent donc pas parfaitement une seule radio. Pour de meilleurs résultats côté PC, le désactiver ou utiliser Ethernet (à documenter dans les guides Ubuntu/Windows, SS-091/092) ;
 - un seul point d'accès, une seule tablette, un seul réseau, quelques minutes de mesure. Un pic isolé à ~1 s vu dans quelques séries de ping n'a pas été reproduit et n'est pas expliqué (scan Wi-Fi en arrière-plan possible).
 
+## Rendu mis à l'échelle (SS-033)
+
+Écran distant 1920×1080 ajusté dans la surface 1280×752 de la GT-P5110 (échelle 0,667, filtrage bilinéaire, `Matrix` découpée à la zone modifiée), mesuré par une sonde temporaire (`System.nanoTime` autour du rendu, moyenne sur 40 rendus) puis retirée :
+
+| Cas | Zone redessinée | Temps par rendu |
+|---|---|---|
+| horloge (petites mises à jour) | ~30 000 px | ~22 à 26 ms (max ~50 ms) |
+| terminal qui défile en continu | ~400 000 px | 53 à 58 ms (max ~78 ms) |
+| rendu complet | 1280×752 (962 560 px) | ~200 ms |
+
+Un seul appareil, un serveur TigerVNC dans un conteneur, quelques dizaines de secondes par cas ; ce sont des ordres de grandeur, pas un benchmark (SS-060, SS-062, SS-063). Aucune optimisation n'a été faite : la première à essayer serait un filtrage plus léger ou un rendu partiel plus fin, à justifier par une mesure.
+
 ## Mesures avant optimisation
 
 Toujours mesurer RAW avant d'implémenter un encodage plus complexe. Hextile économise potentiellement du réseau mais consomme du CPU. Le meilleur compromis doit être établi sur la tablette réelle.

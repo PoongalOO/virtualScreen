@@ -1,5 +1,6 @@
 package fr.webinfoconcept.secondscreen.input
 
+import fr.webinfoconcept.secondscreen.render.RenderGeometry
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -130,5 +131,105 @@ class PointerMapperTest {
             assertTrue(mapper.mapClamped(v, v, out))
             assertTrue(out[0] in 0..1279 && out[1] in 0..799)
         }
+    }
+
+    // ============================================================ mise à l'échelle (SS-033)
+
+    /** 1920x1080 ajusté dans 1280x800 : échelle 2/3, image en (0, 40) de 1280x720. */
+    private val fitted = RenderGeometry(1920, 1080, 1280, 800)
+    private val scaledMapper = PointerMapper(1920, 1080) { fitted }
+
+    private fun scaled(x: Float, y: Float): IntArray? {
+        val out = intArrayOf(-7, -7)
+        return if (scaledMapper.map(x, y, out)) out else null
+    }
+
+    @Test
+    fun `a scaled image maps the view back to framebuffer pixels through offset and scale`() {
+        assertArrayEquals(intArrayOf(0, 0), scaled(0f, 40f))                    // coin haut gauche de l'image
+        assertArrayEquals(intArrayOf(960, 540), scaled(640f, 400f))             // le centre de la vue est le centre de l'image
+        assertArrayEquals(intArrayOf(1500, 0), scaled(1000f, 40f))              // 1000 / (2/3) = 1500
+        assertArrayEquals(intArrayOf(1919, 1079), scaled(1279.9f, 759.9f))      // dernier pixel, jamais 1920 ou 1080
+    }
+
+    @Test
+    fun `a touch in a black bar is not converted and leaves the output untouched`() {
+        assertEquals(null, scaled(100f, 39.9f))       // bande du haut
+        assertEquals(null, scaled(100f, 760f))        // bande du bas
+        val out = intArrayOf(-7, -7)
+        assertFalse(scaledMapper.map(100f, 10f, out))
+        assertArrayEquals(intArrayOf(-7, -7), out)
+    }
+
+    @Test
+    fun `side bars are refused too`() {
+        val g = RenderGeometry(1024, 768, 1280, 800)  // barres latérales de 106 px
+        val m = PointerMapper(1024, 768) { g }
+        val out = IntArray(2)
+
+        assertFalse(m.map(50f, 400f, out))
+        assertFalse(m.map(1200f, 400f, out))
+        assertTrue(m.map(106.5f, 0.5f, out))
+        assertArrayEquals(intArrayOf(0, 0), out)
+    }
+
+    @Test
+    fun `clamped mapping brings a touch in a bar or outside back to the edge of the image`() {
+        val out = IntArray(2)
+
+        assertTrue(scaledMapper.mapClamped(100f, 5f, out))       // dans la bande du haut
+        assertArrayEquals(intArrayOf(150, 0), out)
+        assertTrue(scaledMapper.mapClamped(5000f, 5000f, out))
+        assertArrayEquals(intArrayOf(1919, 1079), out)
+        assertTrue(scaledMapper.mapClamped(-50f, 400f, out))
+        assertEquals(0, out[0])
+        assertFalse(scaledMapper.mapClamped(Float.NaN, 400f, out))
+    }
+
+    @Test
+    fun `every framebuffer pixel that shows on screen maps to itself when the image is enlarged`() {
+        val g = RenderGeometry(320, 200, 1280, 800)   // x4 : chaque pixel du framebuffer couvre 4x4 pixels d'écran
+        val m = PointerMapper(320, 200) { g }
+        val out = IntArray(2)
+        for (fx in 0 until 320 step 7) for (fy in 0 until 200 step 5) {
+            assertTrue(m.map(fx * 4f + 2f, fy * 4f + 2f, out))   // le centre du carré à l'écran
+            assertEquals(fx, out[0])
+            assertEquals(fy, out[1])
+        }
+    }
+
+    @Test
+    fun `mapping and drawing agree - the center of a reduced pixel maps back to that pixel`() {
+        val out = IntArray(2)
+        // le pixel (fx, fy) est dessiné à (destLeft + fx*scale ... destLeft + (fx+1)*scale) : on vise son centre
+        for (fx in listOf(0, 1, 500, 959, 1918, 1919)) for (fy in listOf(0, 1, 540, 1078, 1079)) {
+            val vx = fitted.destLeft + (fx + 0.5f) * fitted.scale
+            val vy = fitted.destTop + (fy + 0.5f) * fitted.scale
+            assertTrue(scaledMapper.map(vx, vy, out))
+            assertEquals("x $fx", fx, out[0])
+            assertEquals("y $fy", fy, out[1])
+        }
+    }
+
+    @Test
+    fun `the mapper follows the geometry as it changes, without being rebuilt`() {
+        var current: RenderGeometry? = RenderGeometry(1280, 800, 1280, 800)
+        val m = PointerMapper(1280, 800) { current }
+        val out = IntArray(2)
+
+        assertTrue(m.map(640f, 400f, out)); assertArrayEquals(intArrayOf(640, 400), out)
+
+        current = RenderGeometry(1280, 800, 1280, 752, fitToScreen = true)   // l'utilisateur ajuste
+        assertTrue(m.map(100f, 188f, out)); assertArrayEquals(intArrayOf(65, 200), out)    // (100-38)/0,94 ; 188/0,94
+
+        current = null                                                          // plus de géométrie : 1:1
+        assertTrue(m.map(100f, 188f, out)); assertArrayEquals(intArrayOf(100, 188), out)
+    }
+
+    @Test
+    fun `viewScale is 1 without scaling and the scale with it`() {
+        assertEquals(1f, mapper.viewScale, 0f)
+        assertEquals(1280f / 1920f, scaledMapper.viewScale, 1e-6f)
+        assertEquals(1f, PointerMapper(1280, 800) { RenderGeometry(1280, 800, 1280, 752) }.viewScale, 0f)
     }
 }

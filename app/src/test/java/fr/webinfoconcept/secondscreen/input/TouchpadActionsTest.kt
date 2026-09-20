@@ -1,5 +1,6 @@
 package fr.webinfoconcept.secondscreen.input
 
+import fr.webinfoconcept.secondscreen.render.RenderGeometry
 import fr.webinfoconcept.secondscreen.rfb.protocol.ClientMessages
 import fr.webinfoconcept.secondscreen.rfb.protocol.PointerButtons
 import org.junit.After
@@ -141,6 +142,28 @@ class TouchpadActionsTest {
         tp.onPointerMove(1f, 0f)
 
         assertEquals(Triple(0, 61, 40), events().last())
+    }
+
+    // ================================================================== mise à l'échelle (SS-033)
+
+    @Test
+    fun `on a scaled image the pointer travels the same distance on screen, so the framebuffer movement is divided by the scale`() {
+        val g = RenderGeometry(1920, 1080, 1280, 800)                 // échelle 2/3
+        val scaledTp = TouchpadActions(PointerMapper(1920, 1080) { g }, sink, position) { 1f }
+
+        scaledTp.onPointerMove(100f, 0f)   // 100 px de doigt à l'écran = 150 px du framebuffer (sensibilité 1)
+
+        assertEquals(Triple(0, 960 + 150, 540), events().last())
+    }
+
+    @Test
+    fun `without scaling the movement is unchanged by the geometry`() {
+        val g = RenderGeometry(1280, 800, 1280, 752)                  // 1:1 rogné
+        val plain = TouchpadActions(PointerMapper(1280, 800) { g }, sink, position) { 2f }
+
+        plain.onPointerMove(10f, 0f)
+
+        assertEquals(Triple(0, 640 + 20, 400), events().last())
     }
 
     // ================================================================== clics
