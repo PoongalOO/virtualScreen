@@ -319,4 +319,74 @@ class PointerActionsTest {
             assertEquals("séquence $seq", server.presses.size, server.releases.size)
         }
     }
+
+    // =========================================================== appui long -> clic droit (SS-043)
+
+    @Test(timeout = 10_000)
+    fun `a right click is sent as the right button at the framebuffer pixel`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        assertTrue(actions.rightClick(639.9f, 400.2f))
+
+        assertArrayEquals(ClientMessages.rightClick(639, 400), out.poll(5, TimeUnit.SECONDS))
+        assertTrue(out.isEmpty())
+    }
+
+    @Test(timeout = 10_000)
+    fun `a right click outside the framebuffer sends nothing`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val actions = PointerActions(PointerMapper(1280, 800), collectingSender(out))
+
+        assertFalse(actions.rightClick(1280f, 10f))
+        assertFalse(actions.rightClick(Float.NaN, 10f))
+        Thread.sleep(50)
+
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun `a right click is refused when the sender is stopped`() {
+        val actions = PointerActions(PointerMapper(1280, 800), PointerSender { }.also { senders += it })
+
+        assertFalse(actions.rightClick(10f, 10f))
+    }
+
+    /** Timer simulé pour la chaîne complète. */
+    private class ManualScheduler : DelayScheduler {
+        var task: Runnable? = null
+        override fun postDelayed(task: Runnable, delayMs: Long) { this.task = task }
+        override fun cancel(task: Runnable) { if (this.task === task) this.task = null }
+        fun fire() { task?.also { task = null }?.run() }
+    }
+
+    @Test(timeout = 10_000)
+    fun `long press reaches the server as exactly one right click and never a left button`() = LoopbackPair().use { p ->
+        val sender = PointerSender.forSocket(p.client).also { it.start(); senders += it }
+        val actions = PointerActions(PointerMapper(1280, 800), sender)
+        val scheduler = ManualScheduler()
+        val detector = TouchGestureDetector(
+            8f, dragListener = actions,
+            longPress = LongPress(500, scheduler) { x, y -> actions.rightClick(x, y) }
+        ) { x, y -> actions.tap(x, y) }
+
+        // 1. appui long : posé, le minuteur expire, le doigt frémit puis se lève
+        detector.onDown(300f, 200f, 0); detector.onMove(303f, 201f); scheduler.fire(); detector.onUp(303f, 201f, 900)
+        // 2. tap : un clic gauche
+        detector.onDown(10f, 10f, 2_000); detector.onUp(10f, 10f, 2_070)
+        // 3. appui long puis grand déplacement : ni glissement ni clic gauche
+        detector.onDown(600f, 400f, 4_000); scheduler.fire(); detector.onMove(900f, 700f); detector.onUp(900f, 700f, 5_000)
+        // 4. appui long interrompu par un deuxième doigt : rien
+        detector.onDown(700f, 100f, 6_000); detector.onSecondFingerDown(); scheduler.fire(); detector.onUp(700f, 100f, 7_000)
+
+        val expected = ClientMessages.rightClick(300, 200) + ClientMessages.leftClick(10, 10) + ClientMessages.rightClick(600, 400)
+        val stream = p.receiveExactly(expected.size)
+        assertArrayEquals(expected, stream)
+        // le bouton gauche n'apparaît que dans le clic du tap : masques des trois messages de chaque clic
+        val masks = (0 until stream.size step 6).map { stream[it + 1].toInt() }
+        assertEquals(listOf(0, 4, 0, 0, 1, 0, 0, 4, 0), masks)
+        sender.stop()
+        p.client.close()
+        assertEquals("aucun octet de plus", 0, p.receiveUntilEof().size)
+    }
 }

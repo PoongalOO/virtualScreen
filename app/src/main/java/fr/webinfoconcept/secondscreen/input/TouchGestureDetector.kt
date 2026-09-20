@@ -16,8 +16,49 @@ interface DragListener {
     fun onDragEnd(x: Float, y: Float)
 }
 
+/** Programme une action différée sur le thread qui traite les événements tactiles (le thread UI). */
+interface DelayScheduler {
+    fun postDelayed(task: Runnable, delayMs: Long)
+    fun cancel(task: Runnable)
+}
+
 /**
- * Reconnaît un **tap** ou un **glissement** dans un flux d'événements tactiles (SS-041, SS-042). Machine à états pure,
+ * Réglage de l'**appui long** (SS-043) : un doigt qui reste posé sans bouger pendant [thresholdMs] déclenche
+ * [onLongPress], qui envoie un clic droit.
+ *
+ * @param thresholdMs durée d'appui, de [MIN_THRESHOLD_MS] à [MAX_THRESHOLD_MS] ; par défaut le délai d'appui long
+ *   d'Android ([DEFAULT_THRESHOLD_MS]), que l'appelant remplace par celui de la plateforme
+ *   (`ViewConfiguration.getLongPressTimeout()`) ou par un réglage de l'utilisateur.
+ * @param scheduler si présent, l'appui long se déclenche **dès que le seuil est atteint, doigt encore posé** (comme
+ *   partout dans Android). Sans lui, il se déclenche au relâchement d'un contact qui a duré au moins [thresholdMs].
+ *   Dans les deux cas la décision repose sur l'horodatage des événements, pas sur la précision d'un minuteur.
+ * @param onLongPress reçoit la position du toucher initial, en pixels de la vue.
+ */
+class LongPress(
+    val thresholdMs: Long = DEFAULT_THRESHOLD_MS,
+    val scheduler: DelayScheduler? = null,
+    val onLongPress: (x: Float, y: Float) -> Unit
+) {
+    init {
+        require(thresholdMs in MIN_THRESHOLD_MS..MAX_THRESHOLD_MS) {
+            "seuil d'appui long hors de $MIN_THRESHOLD_MS..$MAX_THRESHOLD_MS ms : $thresholdMs"
+        }
+    }
+
+    companion object {
+        /** Délai d'appui long d'Android (`ViewConfiguration.getLongPressTimeout()` par défaut). */
+        const val DEFAULT_THRESHOLD_MS = 500L
+
+        /** En dessous, un tap un peu lent deviendrait un clic droit. */
+        const val MIN_THRESHOLD_MS = 200L
+
+        /** Au-dessus, l'appui long est pratiquement inatteignable. */
+        const val MAX_THRESHOLD_MS = 3_000L
+    }
+}
+
+/**
+ * Reconnaît un **tap**, un **appui long** ou un **glissement** dans un flux d'événements tactiles (SS-041, SS-042). Machine à états pure,
  * sans dépendance Android : testable sur la JVM. L'adaptation depuis `MotionEvent` est dans [TouchInput].
  *
  * ## Tap (SS-041)
@@ -25,9 +66,17 @@ interface DragListener {
  * n'est donc jamais émis à l'appui : un appui qui devient un geste ne produit jamais de clic gauche parasite. Pas
  * de tap :
  * - si le doigt **bouge** de plus de [slopPx] pixels (c'est alors un glissement) ;
- * - si le contact dure plus de [maxTapMs] (appui long : SS-043) ;
+ * - si le contact dure trop longtemps : c'est un appui long avec un [longPress], sinon plus de [maxTapMs] ;
  * - si un **deuxième doigt** se pose (défilement à deux doigts : SS-044) ;
  * - si le système **annule** le geste ([onCancel]).
+ *
+ * ## Appui long (SS-043)
+ * Avec un [longPress], un doigt qui reste dans [slopPx] pendant [LongPress.thresholdMs] déclenche `onLongPress`
+ * **une seule fois** (clic droit), puis **le reste du geste est ignoré** : ni tap ni glissement, donc **aucun clic
+ * gauche parasite** au relâchement, même si le doigt bouge ensuite. Bouger au-delà du seuil de mouvement avant le
+ * délai annule l'appui long (c'est un glissement) ; un deuxième doigt ou une annulation aussi. Un contact de
+ * durée `>= thresholdMs` est un appui long, de durée `< thresholdMs` un tap : **aucune zone morte** entre les deux,
+ * quel que soit le seuil configuré (`maxTapMs` ne s'applique alors plus).
  *
  * ## Glissement (SS-042)
  * Quand le doigt dépasse [slopPx], le glissement commence : `onDragStart(position de départ)` puis
@@ -51,15 +100,18 @@ interface DragListener {
  *
  * @param slopPx déplacement toléré, en pixels de la vue (typiquement `ViewConfiguration.scaledTouchSlop`) ; le
  *   dépasser annule le tap et démarre le glissement. Une distance égale à [slopPx] reste un tap.
- * @param maxTapMs durée maximale d'un tap, en ms ; par défaut le délai d'appui long d'Android (500 ms), pour que
- *   SS-043 prenne exactement le relais. Ne limite pas le début d'un glissement.
+ * @param maxTapMs durée maximale d'un tap, en ms, **quand il n'y a pas d'appui long** (un contact plus long est alors
+ *   ignoré). Avec un [longPress], c'est son seuil qui sépare le tap de l'appui long. Ne limite pas le début d'un
+ *   glissement.
  * @param dragListener reçoit les glissements ; `null` pour ne reconnaître que les taps.
+ * @param longPress réglage de l'appui long ; `null` pour ne pas le reconnaître.
  * @param onTap reçoit la position du toucher initial, en pixels de la vue.
  */
 class TouchGestureDetector(
     private val slopPx: Float,
     private val maxTapMs: Long = DEFAULT_MAX_TAP_MS,
     private val dragListener: DragListener? = null,
+    private val longPress: LongPress? = null,
     private val onTap: (x: Float, y: Float) -> Unit
 ) {
     init {
@@ -67,7 +119,10 @@ class TouchGestureDetector(
         require(maxTapMs > 0) { "maxTapMs doit être > 0 : $maxTapMs" }
     }
 
-    private enum class State { IDLE, PENDING, DRAGGING }
+    private enum class State { IDLE, PENDING, DRAGGING, LONG_PRESSED }
+
+    // Alloué une fois : programmer l'appui long à chaque toucher ne crée aucun objet.
+    private val longPressTask = Runnable { onLongPressTimeout() }
 
     private var state = State.IDLE
     private var downX = 0f
@@ -80,6 +135,10 @@ class TouchGestureDetector(
     val isTracking: Boolean
         get() = state == State.PENDING
 
+    /** `true` une fois l'appui long déclenché, jusqu'à la fin du geste. */
+    val isLongPressed: Boolean
+        get() = state == State.LONG_PRESSED
+
     /** `true` entre [DragListener.onDragStart] et [DragListener.onDragEnd]. */
     val isDragging: Boolean
         get() = state == State.DRAGGING
@@ -87,12 +146,14 @@ class TouchGestureDetector(
     /** Premier doigt posé en ([x], [y]) à l'instant [timeMs] (horloge monotone, ms). */
     fun onDown(x: Float, y: Float, timeMs: Long) {
         endDragIfAny() // un relâchement perdu ne doit pas laisser le bouton enfoncé
+        cancelLongPressTimer()
         state = State.PENDING
         downX = x
         downY = y
         downTimeMs = timeMs
         lastX = x
         lastY = y
+        longPress?.scheduler?.postDelayed(longPressTask, longPress.thresholdMs)
     }
 
     /** Le doigt bouge : au-delà du seuil ce n'est plus un tap, c'est un glissement (s'il y a un [dragListener]). */
@@ -101,12 +162,13 @@ class TouchGestureDetector(
         when (state) {
             State.PENDING -> if (!withinSlop(x, y)) startDrag(x, y)
             State.DRAGGING -> moveDrag(x, y)
-            State.IDLE -> Unit
+            State.IDLE, State.LONG_PRESSED -> Unit // après un appui long, le reste du geste est ignoré
         }
     }
 
     /** Un doigt supplémentaire est posé : ce n'est ni un tap ni un glissement ; un glissement en cours se termine. */
     fun onSecondFingerDown() {
+        cancelLongPressTimer()
         endDragIfAny()
         state = State.IDLE
     }
@@ -119,6 +181,10 @@ class TouchGestureDetector(
     fun onUp(x: Float, y: Float, timeMs: Long): Boolean {
         when (state) {
             State.IDLE -> return false
+            State.LONG_PRESSED -> {
+                state = State.IDLE // l'appui long a déjà tout dit : pas de tap au relâchement
+                return false
+            }
             State.DRAGGING -> {
                 endDrag(lastX, lastY) // pas la position de l'UP : voir la documentation de la classe
                 return false
@@ -130,9 +196,19 @@ class TouchGestureDetector(
                     endDrag(x, y)
                     return false
                 }
+                cancelLongPressTimer()
                 state = State.IDLE // avant le rappel : un second onUp ne peut jamais émettre deux fois
                 val duration = timeMs - downTimeMs
-                if (duration < 0 || duration > maxTapMs || !withinSlop(x, y)) return false
+                if (duration < 0 || !withinSlop(x, y)) return false
+                if (longPress != null) {
+                    // Décision sur l'horodatage : un minuteur en retard ne transforme pas un appui long en rien.
+                    if (duration >= longPress.thresholdMs) {
+                        longPress.onLongPress(downX, downY)
+                        return false
+                    }
+                } else if (duration > maxTapMs) {
+                    return false
+                }
                 onTap(downX, downY)
                 return true
             }
@@ -141,11 +217,25 @@ class TouchGestureDetector(
 
     /** Geste annulé (`ACTION_CANCEL`, perte du focus...) : jamais de tap ; un glissement en cours est relâché. */
     fun onCancel() {
+        cancelLongPressTimer()
         endDragIfAny()
         state = State.IDLE
     }
 
+    /** Le minuteur d'appui long a expiré, doigt encore posé et immobile : c'est un appui long. */
+    private fun onLongPressTimeout() {
+        val config = longPress ?: return
+        if (state != State.PENDING) return
+        state = State.LONG_PRESSED // avant le rappel : le relâchement qui suit ne clique pas
+        config.onLongPress(downX, downY)
+    }
+
+    private fun cancelLongPressTimer() {
+        longPress?.scheduler?.cancel(longPressTask)
+    }
+
     private fun startDrag(x: Float, y: Float) {
+        cancelLongPressTimer()
         val listener = dragListener
         if (listener == null) {
             state = State.IDLE // sans écouteur : un mouvement annule simplement le tap
@@ -181,7 +271,7 @@ class TouchGestureDetector(
     }
 
     companion object {
-        /** Délai d'appui long d'Android (`ViewConfiguration.getLongPressTimeout()` par défaut). */
+        /** Durée maximale d'un tap sans appui long : le délai d'appui long d'Android. */
         const val DEFAULT_MAX_TAP_MS = 500L
     }
 }

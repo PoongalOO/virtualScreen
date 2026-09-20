@@ -403,4 +403,283 @@ class TouchGestureDetectorTest {
             assertFalse("glissement resté ouvert après annulation (seq $seed)", open)
         }
     }
+
+    // =========================================================== appui long (SS-043)
+
+    /** Minuteur simulé : le test décide quand la tâche programmée s'exécute. */
+    private class FakeScheduler : DelayScheduler {
+        var task: Runnable? = null
+        var delayMs = -1L
+        var posts = 0
+        var cancels = 0
+        override fun postDelayed(task: Runnable, delayMs: Long) { this.task = task; this.delayMs = delayMs; posts++ }
+        override fun cancel(task: Runnable) { if (this.task === task) this.task = null; cancels++ }
+        /** Exécute la tâche si elle est encore programmée ; `false` si elle a été annulée. */
+        fun fire(): Boolean { val t = task ?: return false; task = null; t.run(); return true }
+        /** Exécute la tâche même annulée : un minuteur déjà parti dans la file d'attente du système. */
+        fun fireStale(t: Runnable) = t.run()
+    }
+
+    private val lpScheduler = FakeScheduler()
+    private val lpEvents = mutableListOf<String>()
+    private fun lpDetector(
+        threshold: Long = 500,
+        scheduler: DelayScheduler? = lpScheduler,
+        maxTapMs: Long = 500
+    ) = TouchGestureDetector(
+        8f, maxTapMs, dragListener = object : DragListener {
+            override fun onDragStart(x: Float, y: Float) { lpEvents += "dragStart($x,$y)" }
+            override fun onDragMove(x: Float, y: Float) { lpEvents += "dragMove($x,$y)" }
+            override fun onDragEnd(x: Float, y: Float) { lpEvents += "dragEnd($x,$y)" }
+        },
+        longPress = LongPress(threshold, scheduler) { x, y -> lpEvents += "long($x,$y)" }
+    ) { x, y -> lpEvents += "tap($x,$y)" }
+
+    @Test
+    fun `the timer is programmed at the threshold on every down`() {
+        val d = lpDetector(threshold = 650)
+
+        d.onDown(10f, 20f, 0)
+
+        assertEquals(650L, lpScheduler.delayMs)
+        assertEquals(1, lpScheduler.posts)
+        assertTrue(lpScheduler.task != null)
+    }
+
+    @Test
+    fun `holding still fires one long press while the finger is down, then the release does nothing`() {
+        val d = lpDetector()
+        d.onDown(100f, 200f, 0)
+        d.onMove(103f, 202f) // frémissement sous le seuil
+
+        assertTrue(lpScheduler.fire())
+        assertEquals(listOf("long(100.0,200.0)"), lpEvents)
+        assertTrue(d.isLongPressed)
+        assertFalse(d.isTracking)
+
+        assertFalse(d.onUp(103f, 202f, 900))
+        assertEquals("aucun clic gauche parasite au relâchement", listOf("long(100.0,200.0)"), lpEvents)
+        assertFalse(d.isLongPressed)
+    }
+
+    @Test
+    fun `after a long press the rest of the gesture is ignored - no drag, no tap`() {
+        val d = lpDetector()
+        d.onDown(100f, 100f, 0)
+        lpScheduler.fire()
+
+        d.onMove(400f, 400f)
+        d.onMove(500f, 500f)
+        d.onUp(500f, 500f, 1_500)
+
+        assertEquals(listOf("long(100.0,100.0)"), lpEvents)
+    }
+
+    @Test
+    fun `the timer firing twice gives a single long press`() {
+        val d = lpDetector()
+        d.onDown(5f, 5f, 0)
+        val task = lpScheduler.task!!
+
+        lpScheduler.fire()
+        lpScheduler.fireStale(task)
+
+        assertEquals(1, lpEvents.count { it.startsWith("long") })
+    }
+
+    @Test
+    fun `lifting before the threshold is a tap and cancels the timer`() {
+        val d = lpDetector()
+        d.onDown(50f, 60f, 0)
+
+        assertTrue(d.onUp(50f, 60f, 300))
+
+        assertEquals(listOf("tap(50.0,60.0)"), lpEvents)
+        assertFalse("minuteur annulé", lpScheduler.fire())
+    }
+
+    @Test
+    fun `moving beyond the slop before the threshold makes it a drag and cancels the long press`() {
+        val d = lpDetector()
+        d.onDown(100f, 100f, 0)
+        val task = lpScheduler.task!!
+
+        d.onMove(160f, 100f)
+        lpScheduler.fireStale(task) // même un minuteur déjà en route ne peut plus rien déclencher
+        d.onUp(160f, 100f, 900)
+
+        assertEquals(listOf("dragStart(100.0,100.0)", "dragMove(160.0,100.0)", "dragEnd(160.0,100.0)"), lpEvents)
+        assertFalse(lpScheduler.fire())
+    }
+
+    @Test
+    fun `a second finger and a cancel both cancel the long press`() {
+        val d = lpDetector()
+
+        d.onDown(1f, 1f, 0); d.onSecondFingerDown()
+        assertFalse(lpScheduler.fire())
+        d.onUp(1f, 1f, 800)
+
+        d.onDown(2f, 2f, 1_000); d.onCancel()
+        assertFalse(lpScheduler.fire())
+        d.onUp(2f, 2f, 1_800)
+
+        assertTrue(lpEvents.isEmpty())
+    }
+
+    @Test
+    fun `a stale timer cannot fire after the gesture ended`() {
+        val d = lpDetector()
+        d.onDown(1f, 1f, 0)
+        val task = lpScheduler.task!!
+        d.onUp(1f, 1f, 100)
+        lpEvents.clear()
+
+        lpScheduler.fireStale(task)
+
+        assertTrue(lpEvents.isEmpty())
+        assertFalse(d.isLongPressed)
+    }
+
+    @Test
+    fun `a timer of a previous touch cannot make the next touch a long press`() {
+        val d = lpDetector()
+        d.onDown(1f, 1f, 0)
+        val task = lpScheduler.task!!
+        d.onUp(1f, 1f, 100) // tap
+        d.onDown(200f, 200f, 300) // nouveau geste, en attente
+        lpEvents.clear()
+
+        // le minuteur de l'ancien geste est annulé par onDown/onUp ; celui du nouveau n'a pas expiré
+        assertEquals("un seul minuteur programmé à la fois", task, lpScheduler.task)
+        d.onUp(200f, 200f, 380)
+        assertEquals(listOf("tap(200.0,200.0)"), lpEvents)
+    }
+
+    @Test
+    fun `without a scheduler a contact held for the threshold is a long press on release`() {
+        val d = lpDetector(threshold = 500, scheduler = null)
+
+        d.onDown(100f, 100f, 1_000); d.onUp(100f, 100f, 1_500) // exactement le seuil
+        d.onDown(200f, 200f, 3_000); d.onUp(200f, 200f, 3_499) // juste en dessous
+        d.onDown(300f, 300f, 5_000); d.onUp(300f, 300f, 7_000) // très long
+
+        assertEquals(listOf("long(100.0,100.0)", "tap(200.0,200.0)", "long(300.0,300.0)"), lpEvents)
+    }
+
+    @Test
+    fun `a late timer does not lose the long press - the release timestamp decides`() {
+        val d = lpDetector()
+        d.onDown(100f, 100f, 0)
+        // le fil UI était occupé : l'UP arrive avec 620 ms de contact avant que le minuteur ait pu s'exécuter
+        d.onUp(100f, 100f, 620)
+
+        assertEquals(listOf("long(100.0,100.0)"), lpEvents)
+        assertFalse(lpScheduler.fire())
+    }
+
+    @Test
+    fun `no dead zone between tap and long press when the threshold is above the default tap limit`() {
+        val d = lpDetector(threshold = 800, scheduler = null, maxTapMs = 500)
+
+        d.onDown(1f, 1f, 0); d.onUp(1f, 1f, 600)   // 600 ms : tap (et non « ni l'un ni l'autre »)
+        d.onDown(2f, 2f, 1_000); d.onUp(2f, 2f, 1_799)
+        d.onDown(3f, 3f, 3_000); d.onUp(3f, 3f, 3_800)
+
+        assertEquals(listOf("tap(1.0,1.0)", "tap(2.0,2.0)", "long(3.0,3.0)"), lpEvents)
+    }
+
+    @Test
+    fun `a configurable threshold applies to the timer as well`() {
+        for (threshold in listOf(200L, 500L, 1_200L, 3_000L)) {
+            val s = FakeScheduler()
+            val d = lpDetector(threshold = threshold, scheduler = s)
+            d.onDown(0f, 0f, 0)
+            assertEquals(threshold, s.delayMs)
+            d.onCancel()
+        }
+    }
+
+    @Test
+    fun `a long press on release with a jump beyond the slop is a drag, not a long press`() {
+        val d = lpDetector(scheduler = null)
+
+        d.onDown(0f, 0f, 0)
+        d.onUp(300f, 0f, 900)
+
+        assertEquals(listOf("dragStart(0.0,0.0)", "dragMove(300.0,0.0)", "dragEnd(300.0,0.0)"), lpEvents)
+    }
+
+    @Test
+    fun `a long press without a drag listener still works and never taps`() {
+        val events = mutableListOf<String>()
+        val s = FakeScheduler()
+        val d = TouchGestureDetector(8f, longPress = LongPress(500, s) { x, y -> events += "long($x,$y)" }) { x, y ->
+            events += "tap($x,$y)"
+        }
+        d.onDown(9f, 9f, 0); s.fire(); d.onUp(9f, 9f, 700)
+
+        assertEquals(listOf("long(9.0,9.0)"), events)
+    }
+
+    @Test
+    fun `a listener that re-enters the detector cannot cause a second long press`() {
+        lateinit var d: TouchGestureDetector
+        var count = 0
+        val s = FakeScheduler()
+        d = TouchGestureDetector(8f, longPress = LongPress(500, s) { _, _ -> count++; d.onUp(1f, 1f, 900); d.onCancel() }) { _, _ -> }
+
+        d.onDown(1f, 1f, 0)
+        s.fire()
+
+        assertEquals(1, count)
+    }
+
+    @Test
+    fun `long press threshold is validated`() {
+        assertThrows(IllegalArgumentException::class.java) { LongPress(199) { _, _ -> } }
+        assertThrows(IllegalArgumentException::class.java) { LongPress(3_001) { _, _ -> } }
+        assertThrows(IllegalArgumentException::class.java) { LongPress(0) { _, _ -> } }
+        assertEquals(500L, LongPress.DEFAULT_THRESHOLD_MS)
+        LongPress(200) { _, _ -> }
+        LongPress(3_000) { _, _ -> }
+    }
+
+    /**
+     * Propriété : quelle que soit la suite d'événements (minuteur inclus), un même geste (de `onDown` au suivant)
+     * produit AU PLUS UNE issue parmi tap, appui long, glissement : jamais un clic gauche en plus d'un clic droit,
+     * jamais un tap après un glissement.
+     */
+    @Test
+    fun `random sequences with a timer give at most one outcome per gesture`() {
+        val rnd = java.util.Random(99)
+        repeat(300) { seq ->
+            val s = FakeScheduler()
+            var outcomes = 0
+            val d = TouchGestureDetector(
+                8f,
+                dragListener = object : DragListener {
+                    override fun onDragStart(x: Float, y: Float) { outcomes++ }
+                    override fun onDragMove(x: Float, y: Float) {}
+                    override fun onDragEnd(x: Float, y: Float) {}
+                },
+                longPress = LongPress(500, s.takeIf { seq % 3 != 0 }) { _, _ -> outcomes++ }
+            ) { _, _ -> outcomes++ }
+            var t = 0L
+            repeat(200) {
+                t += rnd.nextInt(400)
+                val x = (rnd.nextInt(300) - 50).toFloat()
+                val y = (rnd.nextInt(300) - 50).toFloat()
+                when (rnd.nextInt(7)) {
+                    0 -> { d.onDown(x, y, t); outcomes = 0 } // nouveau geste
+                    1, 2 -> d.onMove(x, y)
+                    3 -> d.onUp(x, y, t)
+                    4 -> d.onSecondFingerDown()
+                    5 -> d.onCancel()
+                    else -> s.fire()
+                }
+                assertTrue("plusieurs issues pour un même geste (seq $seq)", outcomes <= 1)
+            }
+        }
+    }
 }

@@ -4,7 +4,7 @@ import fr.webinfoconcept.secondscreen.rfb.protocol.ClientMessages
 import fr.webinfoconcept.secondscreen.rfb.protocol.PointerButtons
 
 /**
- * Traduit une action de l'utilisateur en messages `PointerEvent` envoyés au serveur (SS-040, SS-041, SS-042) : convertit
+ * Traduit une action de l'utilisateur en messages `PointerEvent` envoyés au serveur (SS-040, SS-041, SS-042, SS-043) : convertit
  * la position de la vue en pixel du framebuffer ([PointerMapper]), compose le message ([ClientMessages]) et le confie à
  * [PointerSender]. Appelée sur le thread UI ; ne bloque jamais.
  *
@@ -32,6 +32,16 @@ class PointerActions(@Volatile var mapper: PointerMapper, private val sender: Po
     fun tap(viewX: Float, viewY: Float): Boolean {
         if (!mapper.map(viewX, viewY, pixel)) return false
         return sender.send(ClientMessages.leftClick(pixel[0], pixel[1]))
+    }
+
+    /**
+     * Clic droit à la position ([viewX], [viewY]) de la vue (appui long, SS-043). Le bouton gauche n'est jamais
+     * enfoncé. Mêmes garde-fous que [tap].
+     * @return `true` si le clic a été mis en file.
+     */
+    fun rightClick(viewX: Float, viewY: Float): Boolean {
+        if (!mapper.map(viewX, viewY, pixel)) return false
+        return sender.send(ClientMessages.rightClick(pixel[0], pixel[1]))
     }
 
     override fun onDragStart(x: Float, y: Float) {

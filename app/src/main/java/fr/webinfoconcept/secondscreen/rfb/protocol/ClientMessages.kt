@@ -33,6 +33,9 @@ object ClientMessages {
     /** Longueur de [leftClick] : trois `PointerEvent`. */
     const val LEFT_CLICK_LENGTH = 3 * POINTER_EVENT_LENGTH
 
+    /** Longueur de [rightClick] : trois `PointerEvent`. */
+    const val RIGHT_CLICK_LENGTH = LEFT_CLICK_LENGTH
+
     /** Longueur de [dragStart] : deux `PointerEvent`. */
     const val DRAG_START_LENGTH = 2 * POINTER_EVENT_LENGTH
 
@@ -121,10 +124,19 @@ object ClientMessages {
      * Un seul tableau garantit que l'appui n'est jamais envoyé sans son relâchement (bouton coincé côté serveur) ni
      * entrelacé avec un autre message.
      */
-    fun leftClick(x: Int, y: Int): ByteArray {
+    fun leftClick(x: Int, y: Int): ByteArray = click(PointerButtons.LEFT, x, y)
+
+    /**
+     * Clic droit complet (SS-043) : même forme que [leftClick] avec le bouton droit ([PointerButtons.RIGHT]) —
+     * survol sans bouton, appui du bouton droit, relâchement —, en **un seul message** de [RIGHT_CLICK_LENGTH] octets.
+     * Le bouton gauche n'est jamais enfoncé : aucun clic gauche parasite.
+     */
+    fun rightClick(x: Int, y: Int): ByteArray = click(PointerButtons.RIGHT, x, y)
+
+    private fun click(button: Int, x: Int, y: Int): ByteArray {
         val message = ByteArray(LEFT_CLICK_LENGTH)
         writePointerEvent(message, 0, 0, x, y)
-        writePointerEvent(message, POINTER_EVENT_LENGTH, PointerButtons.LEFT, x, y)
+        writePointerEvent(message, POINTER_EVENT_LENGTH, button, x, y)
         writePointerEvent(message, 2 * POINTER_EVENT_LENGTH, 0, x, y)
         return message
     }

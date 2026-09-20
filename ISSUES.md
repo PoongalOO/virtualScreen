@@ -85,7 +85,7 @@ Down/up fiables sans double événement. **À prendre en compte (mesuré en SS-0
 Déplacement avec bouton maintenu. *(Fait : `TouchGestureDetector` + `DragListener`, `PointerActions`, `ClientMessages.dragStart`, `PointerSender.sendMove` ; le bouton n'est jamais laissé enfoncé. Le branchement à la vraie connexion est SS-054.)*
 
 ### SS-043 — Appui long = clic droit — P1
-Seuil configurable et absence de clic gauche parasite.
+Seuil configurable et absence de clic gauche parasite. *(Fait : `LongPress`, `TouchGestureDetector`, `ClientMessages.rightClick`, `PointerActions.rightClick`. Seuil = celui de la plateforme ; pas encore de réglage propre à l'application. Pas de retour au doigt sur la GT-P5110, sans vibreur : voir ARCHITECTURE.md.)*
 
 ### SS-044 — Scroll deux doigts — P1
 Conversion en événements de molette VNC.

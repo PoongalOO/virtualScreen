@@ -80,6 +80,40 @@ class PointerEventTest {
     }
 
     @Test
+    fun `right click is hover then right button press then release, in one 18-byte array`() {
+        val click = ClientMessages.rightClick(640, 400)
+
+        assertEquals(ClientMessages.RIGHT_CLICK_LENGTH, click.size)
+        assertEquals(18, click.size)
+        assertArrayEquals(hex("05 00 0280 0190   05 04 0280 0190   05 00 0280 0190"), click)
+    }
+
+    @Test
+    fun `right click never presses the left button and always ends released`() {
+        for ((x, y) in listOf(0 to 0, 1279 to 799, 65535 to 65535, 3 to 700)) {
+            val click = ClientMessages.rightClick(x, y)
+            assertEquals(0, click[1].toInt())
+            assertEquals("bouton droit seul : masque 4, jamais 1 ni 5", PointerButtons.RIGHT, click[7].toInt())
+            assertEquals(0, click[13].toInt())
+            for (event in 0 until 3) assertEquals(5, click[event * 6].toInt())
+        }
+    }
+
+    @Test
+    fun `right click differs from left click only by the button bit`() {
+        val left = ClientMessages.leftClick(123, 456)
+        val right = ClientMessages.rightClick(123, 456)
+        val diff = left.indices.filter { left[it] != right[it] }
+        assertEquals(listOf(7), diff)
+    }
+
+    @Test
+    fun `right click refuses out-of-range coordinates`() {
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.rightClick(-1, 0) }
+        assertThrows(IllegalArgumentException::class.java) { ClientMessages.rightClick(0, 65536) }
+    }
+
+    @Test
     fun `drag start is hover then press in one 12-byte array, without release`() {
         val start = ClientMessages.dragStart(640, 400)
 

@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Écran distant : héberge le [RemoteSurfaceView] en plein écran (SS-030, SS-031, SS-032, SS-034) et transmet les taps
- * comme clics gauche et les glissements comme déplacements bouton enfoncé (SS-040, SS-041, SS-042).
+ * comme clics gauche et les glissements comme déplacements bouton enfoncé, l'appui long comme clic droit (SS-040 à SS-043).
  *
  * **Provisoire** : en attendant la connexion réelle (SS-054), affiche un motif de test ([RenderTestPattern]) et, si
  * [EXTRA_ANIMATE] est demandé, y déplace un carré avec [RenderTestDriver], qui emprunte le même chemin que le
@@ -56,7 +56,7 @@ class RemoteActivity : Activity() {
         val sender = PointerSender { messagesSent.incrementAndGet() }
         pointerSender = sender
         val actions = PointerActions(PointerMapper(framebuffer.width, framebuffer.height), sender)
-        val input = TouchInput(actions, ViewConfiguration.get(this).scaledTouchSlop.toFloat())
+        val input = TouchInput(actions, ViewConfiguration.get(this).scaledTouchSlop.toFloat(), surface)
         touchInput = input
         surface.setOnTouchListener(input)
 
