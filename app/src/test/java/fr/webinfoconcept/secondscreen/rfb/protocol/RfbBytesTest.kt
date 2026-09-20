@@ -1,6 +1,7 @@
 package fr.webinfoconcept.secondscreen.rfb.protocol
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /** Lecture non signée big-endian et assainissement du texte serveur (fixtures déterministes). */
@@ -36,6 +37,59 @@ class RfbBytesTest {
     fun `readers honour the offset`() {
         val b = bytes(0xAA, 0x00, 0x05, 0xBB)
         assertEquals(5, b.u16At(1))
+    }
+
+    // --- écriture (messages client) ---
+
+    @Test
+    fun `putU8At writes the byte and rejects out of range values`() {
+        val b = ByteArray(3)
+        b.putU8At(1, 0xFF)
+
+        assertEquals(listOf(0, 255, 0), b.map { it.toInt() and 0xFF })
+        assertThrows(IllegalArgumentException::class.java) { b.putU8At(0, 256) }
+        assertThrows(IllegalArgumentException::class.java) { b.putU8At(0, -1) }
+    }
+
+    @Test
+    fun `putU16At is big endian and touches only two bytes`() {
+        val b = bytes(0xAA, 0xAA, 0xAA, 0xAA)
+
+        b.putU16At(1, 0x1234)
+
+        assertEquals(listOf(0xAA, 0x12, 0x34, 0xAA), b.map { it.toInt() and 0xFF })
+        b.putU16At(0, 0xFFFF)
+        assertEquals(65535, b.u16At(0))
+        b.putU16At(0, 0)
+        assertEquals(0, b.u16At(0))
+    }
+
+    @Test
+    fun `putU16At rejects values that do not fit`() {
+        val b = ByteArray(2)
+        assertThrows(IllegalArgumentException::class.java) { b.putU16At(0, 65536) }
+        assertThrows(IllegalArgumentException::class.java) { b.putU16At(0, -1) }
+    }
+
+    @Test
+    fun `putS32At is big endian two's complement`() {
+        fun encode(v: Int) = ByteArray(4).also { it.putS32At(0, v) }.map { it.toInt() and 0xFF }
+
+        assertEquals(listOf(0, 0, 0, 1), encode(1))
+        assertEquals(listOf(0x12, 0x34, 0x56, 0x78), encode(0x12345678))
+        assertEquals(listOf(0xFF, 0xFF, 0xFF, 0xFF), encode(-1))
+        assertEquals(listOf(0x80, 0, 0, 0), encode(Int.MIN_VALUE))
+        assertEquals(listOf(0x7F, 0xFF, 0xFF, 0xFF), encode(Int.MAX_VALUE))
+        assertEquals(listOf(0xFF, 0xFF, 0xFF, 0x11), encode(-239)) // pseudo-encodage Cursor
+    }
+
+    @Test
+    fun `writers and readers are inverse`() {
+        for (v in listOf(0, 1, -1, 255, 256, -239, 0x12345678, Int.MIN_VALUE, Int.MAX_VALUE)) {
+            val b = ByteArray(4)
+            b.putS32At(0, v)
+            assertEquals(v.toLong() and 0xFFFFFFFFL, b.u32At(0))
+        }
     }
 
     @Test

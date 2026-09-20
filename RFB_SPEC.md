@@ -97,6 +97,18 @@ Tout type inconnu doit produire une erreur protocolaire contrôlée plutôt qu'u
 
 ## Encodages
 
+### Annonce — `SetEncodings` (SS-022)
+
+`SetEncodings` : `U8 type = 2`, 1 octet de padding, `U16 n`, puis `n` × `S32` (types d'encodage, par ordre de préférence ; les pseudo-encodages sont négatifs, d'où le S32). Message de `4 + 4n` octets, envoyé avec `SetPixelFormat`.
+
+| Encodage | Numéro | Décodeur | Annoncé |
+|---|---|---|---|
+| RAW | 0 | SS-024 | **oui** |
+| CopyRect | 1 | SS-025 | non (à ajouter avec son décodeur) |
+| Hextile | 5 | SS-026 | non (à ajouter avec son décodeur) |
+
+**Règle : un encodage n'est annoncé (`Encoding.ADVERTISED`) que lorsque son décodeur existe et est testé.** Annoncer un encodage non décodable ferait envoyer au serveur des rectangles que le client ne sait pas lire, ce qui coupe la connexion. Les encodages compacts (CopyRect, Hextile) se placent en tête de liste, RAW en dernier : un serveur choisit le premier qu'il sait produire. La liste ne peut être ni vide ni contenir de doublon, et est limitée à 64 entrées.
+
 ### RAW — P0
 
 Premier encodage. Valider : coordonnées, largeur, hauteur, bytes-per-pixel et taille calculée avant lecture/allocation.
@@ -115,7 +127,31 @@ Non nécessaires tant que les mesures ne montrent pas que RAW/Hextile limitent l
 
 ## Pixel format
 
-Format client préféré initial : true color 32 bits. Les conversions doivent être isolées dans une classe/fonction testable. Attention à l'endianness et aux shifts/max RGB.
+### Format imposé par le client — `SetPixelFormat` (SS-021)
+
+Le client impose au serveur le format **XRGB 8888 little-endian** (`PixelFormat.XRGB_8888_LE`) juste après `ServerInit` et avant la première `FramebufferUpdateRequest` :
+
+| Champ | Valeur |
+|---|---|
+| bits-per-pixel / depth | 32 / 24 |
+| big-endian-flag / true-colour-flag | 0 (little-endian) / 1 (couleurs vraies) |
+| red-max = green-max = blue-max | 255 |
+| red-shift / green-shift / blue-shift | 16 / 8 / 0 |
+
+Sur le fil, un pixel occupe 4 octets dans l'ordre **`[bleu, vert, rouge, inutilisé]`**. Lu comme un U32 little-endian il vaut `0x00RRGGBB` ; le framebuffer stocke `0xFF000000 | pixel` (alpha toujours opaque, l'octet inutilisé est ignoré). Le message complet fait 20 octets :
+
+```text
+00 000000  20 18 00 01  00ff 00ff 00ff  10 08 00  000000
+type  pad  bpp dep be tc  rmax gmax bmax  rs gs bs  padding
+```
+
+Pourquoi ce format : little-endian est l'ordre natif de l'ARM de la GT-P5110 (un pixel s'assemble en `Int` sans inversion d'octets), et c'est le format natif 24 bits de x11vnc/TigerVNC, donc le serveur n'a en général aucune conversion à faire.
+
+`PixelFormat.decodePixel` est la conversion **de référence** vers ARGB (générique : 8/16/32 bpp, les deux endianness, composantes ramenées sur 8 bits avec arrondi). Le décodeur RAW (SS-024) aura un chemin rapide pour ce format et devra produire exactement les mêmes valeurs ; un test l'impose. Un format à palette n'est jamais demandé et n'est pas converti.
+
+Un format invalide n'est jamais envoyé (`IllegalArgumentException` avant toute écriture).
+
+Le format annoncé dans `ServerInit` est purement informatif : c'est celui-ci qui fait foi une fois `SetPixelFormat` envoyé.
 
 ## Robustesse
 
