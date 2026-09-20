@@ -3,6 +3,7 @@ package fr.webinfoconcept.secondscreen.session
 import fr.webinfoconcept.secondscreen.input.MessageSink
 import fr.webinfoconcept.secondscreen.input.PointerSender
 import fr.webinfoconcept.secondscreen.net.KeepAlive
+import fr.webinfoconcept.secondscreen.perf.PerfStats
 import fr.webinfoconcept.secondscreen.render.RenderTarget
 import fr.webinfoconcept.secondscreen.rfb.framebuffer.Framebuffer
 import fr.webinfoconcept.secondscreen.rfb.protocol.ClientMessages
@@ -120,10 +121,12 @@ class ConnectionConfig(
  * (état, framebuffer, rendu) une fois qu'une nouvelle tentative ou un [disconnect] a eu lieu.
  *
  * @param socketFactory fabrique de la socket, injectable pour les tests.
+ * @param perf compteurs de performance (SS-060), branchés sur la socket et le lecteur de messages ; `null` : aucune mesure.
  */
 class ConnectionController(
     private val config: ConnectionConfig = ConnectionConfig(),
-    private val socketFactory: () -> RfbSocket = { RfbSocket(config.connectTimeoutMs, config.handshakeTimeoutMs) }
+    private val socketFactory: () -> RfbSocket = { RfbSocket(config.connectTimeoutMs, config.handshakeTimeoutMs) },
+    private val perf: PerfStats? = null
 ) {
     /** Notifié de chaque changement d'état, sur un thread quelconque. */
     interface Listener {
@@ -451,6 +454,7 @@ class ConnectionController(
             return Outcome(null, false, 0)
         }
 
+        socket.traffic = perf?.traffic
         var phase = Phase.CONNECTING
         var vnc: VncAuthentication? = null
         var keepAlive: KeepAlive? = null
@@ -479,7 +483,7 @@ class ConnectionController(
             socket.setReadTimeout(config.readTimeoutMs)
 
             val info = SessionInfo(version, security.type, server, framebuffer)
-            val reader = ServerMessageReader(socket, framebuffer, PixelFormat.XRGB_8888_LE, listener = forwarder(gen))
+            val reader = ServerMessageReader(socket, framebuffer, PixelFormat.XRGB_8888_LE, listener = forwarder(gen), perf = perf)
             phase = Phase.RUNNING
             sender = PointerSender.forSocket(socket)
             updates.set(0) // compteur de la nouvelle session
@@ -546,6 +550,7 @@ class ConnectionController(
                 if (socket.isClosed) throw e
                 val silentMs = (System.nanoTime() - lastReceivedNs) / 1_000_000L
                 if (silentMs > config.livenessTimeoutMs) throw e
+                perf?.recordSessionThreadCpu()
                 continue
             }
             lastReceivedNs = System.nanoTime()
@@ -554,6 +559,7 @@ class ConnectionController(
                 if (isCurrent(gen)) renderTarget?.onFramebufferUpdated()
                 socket.write(nextRequest, 0, nextRequest.size)
             }
+            perf?.recordSessionThreadCpu() // temps processeur du thread de session (décodage + rendu), si mesuré
         }
     }
 

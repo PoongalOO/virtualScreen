@@ -2,7 +2,10 @@ package fr.webinfoconcept.secondscreen
 
 import android.app.Activity
 import android.os.Bundle
+import android.widget.CheckBox
 import android.widget.TextView
+import fr.webinfoconcept.secondscreen.profile.PreferencesStore
+import fr.webinfoconcept.secondscreen.settings.DisplaySettings
 import fr.webinfoconcept.secondscreen.diagnostic.DiagnosticInfo
 import fr.webinfoconcept.secondscreen.diagnostic.formatMebibytes
 
@@ -42,5 +45,14 @@ class DiagnosticActivity : Activity() {
         )
 
         findViewById<TextView>(R.id.value_abi).text = info.abis.joinToString(", ")
+
+        // Mesures de performance (SS-060) : le réglage est mémorisé ; les chiffres s'affichent sur l'écran distant.
+        val settings = DisplaySettings(PreferencesStore(this, DisplaySettings.FILE_NAME))
+        val perf = findViewById<CheckBox>(R.id.check_perf)
+        perf.isChecked = settings.showPerformance
+        perf.setOnCheckedChangeListener { _, checked ->
+            settings.showPerformance = checked
+            SessionManager.perf.enabled = checked
+        }
     }
 }

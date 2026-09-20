@@ -111,4 +111,11 @@
     <string name="diagnostic_memory_label">Mémoire</string>
     <string name="diagnostic_memory_value">%1$s disponible / %2$s totale — tas app max %3$s</string>
     <string name="diagnostic_abi_label">ABI CPU</string>
+    <string name="diagnostic_perf_label">Mesures de performance</string>
+    <string name="diagnostic_perf_toggle">Afficher les mesures sur l\'écran distant</string>
+    <string name="diagnostic_perf_note">Images par seconde, débit réseau, temps de décodage et de rendu, copies, processeur. Désactivé par défaut : les mesures coûtent un peu de temps processeur. Une ligne de chiffres par seconde est aussi écrite dans le journal (aucun contenu d\'écran ni saisie).</string>
+    <string name="perf_hud_updates">Mises à jour %1$s/s · rendus %2$s/s · %3$s Mpx/s décodés</string>
+    <string name="perf_hud_network">Réseau ↓ %1$s Ko/s ↑ %2$s Ko/s · message %3$s ms (max %4$s)</string>
+    <string name="perf_hud_render">Rendu %1$s ms = copie %2$s + dessin %3$s (max %4$s) · %5$s Kpx copiés · copies plein écran %6$d</string>
+    <string name="perf_hud_system">Processeur %1$d %% · tas %2$d Mo</string>
 </resources>

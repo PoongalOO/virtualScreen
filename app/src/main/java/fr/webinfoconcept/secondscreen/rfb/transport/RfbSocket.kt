@@ -1,5 +1,6 @@
 package fr.webinfoconcept.secondscreen.rfb.transport
 
+import fr.webinfoconcept.secondscreen.perf.TrafficCounter
 import java.io.BufferedInputStream
 import java.io.Closeable
 import java.io.IOException
@@ -54,6 +55,13 @@ class RfbSocket(
     private var output: OutputStream? = null
     private var readTimeout = readTimeoutMs
 
+    /**
+     * Compteur d'octets échangés (SS-060), ou `null`. Alimenté **seulement si les mesures sont actives** : sinon chaque
+     * lecture ou écriture ne coûte qu'une lecture de booléen. À poser avant [connect].
+     */
+    @Volatile
+    var traffic: TrafficCounter? = null
+
     init {
         require(connectTimeoutMs > 0) { "connectTimeoutMs doit être > 0" }
         require(readTimeoutMs >= 0) { "readTimeoutMs doit être >= 0" }
@@ -97,7 +105,21 @@ class RfbSocket(
             s.tcpNoDelay = true
             s.connect(address, connectTimeoutMs)
 
-            val stream = BufferedInputStream(s.getInputStream(), INPUT_BUFFER_SIZE)
+            // Les octets sont comptés au niveau de la socket (une fois par remplissage du tampon, pas par octet lu).
+            val counted = object : java.io.FilterInputStream(s.getInputStream()) {
+                override fun read(b: ByteArray, off: Int, len: Int): Int {
+                    val n = super.read(b, off, len)
+                    traffic?.onReceived(n)
+                    return n
+                }
+
+                override fun read(): Int {
+                    val n = super.read()
+                    if (n >= 0) traffic?.onReceived(1)
+                    return n
+                }
+            }
+            val stream = BufferedInputStream(counted, INPUT_BUFFER_SIZE)
             val out = s.getOutputStream()
             synchronized(stateLock) {
                 if (state == State.CLOSED) throw RfbTransportException.Closed()
@@ -196,6 +218,7 @@ class RfbSocket(
             try {
                 out.write(buffer, offset, length)
                 out.flush()
+                traffic?.onSent(length)
             } catch (e: IOException) {
                 if (isClosed) throw RfbTransportException.Closed(e)
                 close()

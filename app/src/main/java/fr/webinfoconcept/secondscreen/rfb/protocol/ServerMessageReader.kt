@@ -1,5 +1,6 @@
 package fr.webinfoconcept.secondscreen.rfb.protocol
 
+import fr.webinfoconcept.secondscreen.perf.PerfStats
 import fr.webinfoconcept.secondscreen.rfb.encoding.CopyRectDecoder
 import fr.webinfoconcept.secondscreen.rfb.encoding.EncodingDecoder
 import fr.webinfoconcept.secondscreen.rfb.encoding.HextileDecoder
@@ -43,13 +44,16 @@ import java.io.IOException
  *   [defaultDecoders] (Hextile, CopyRect, RAW), ce qui correspond à [Encoding.ADVERTISED] : on ne
  *   doit annoncer que ce qu'on sait décoder (un test le vérifie).
  * @param listener notifié après chaque rectangle décodé.
+ * @param perf compteurs de performance (SS-060) ou `null` ; si les mesures sont désactivées, un `FramebufferUpdate` ne coûte
+ *   que la lecture d'un booléen de plus.
  */
 class ServerMessageReader(
     private val socket: RfbSocket,
     private val framebuffer: Framebuffer,
     pixelFormat: PixelFormat = PixelFormat.XRGB_8888_LE,
     decoders: List<EncodingDecoder> = defaultDecoders(pixelFormat, framebuffer.width),
-    private val listener: RectangleListener? = null
+    private val listener: RectangleListener? = null,
+    private val perf: PerfStats? = null
 ) {
     private val decoderList: Array<EncodingDecoder> = decoders.toTypedArray()
 
@@ -91,6 +95,9 @@ class ServerMessageReader(
     }
 
     private fun readFramebufferUpdate(): ServerMessage {
+        val stats = perf?.takeIf { it.enabled }
+        val startNs = if (stats != null) System.nanoTime() else 0L
+        var pixels = 0L
         socket.readFully(header, 0, 3) // padding + U16 nombre de rectangles
         val rectangles = header.u16At(1)
 
@@ -109,7 +116,9 @@ class ServerMessageReader(
                 ?: throw RfbProtocolException.UnsupportedEncoding(encoding)
             decoder.decode(socket, x, y, w, h, framebuffer)
             listener?.onRectangle(x, y, w, h)
+            pixels += w.toLong() * h
         }
+        stats?.onUpdate(rectangles, pixels, System.nanoTime() - startNs)
         return ServerMessage.FramebufferUpdated(rectangles)
     }
 

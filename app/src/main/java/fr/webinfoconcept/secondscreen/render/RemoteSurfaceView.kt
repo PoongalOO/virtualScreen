@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import fr.webinfoconcept.secondscreen.perf.PerfStats
 import android.util.AttributeSet
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -29,6 +30,8 @@ import fr.webinfoconcept.secondscreen.rfb.protocol.RectangleListener
  *   framebuffer (`IntArray`) dans le [Bitmap] de rendu avec `setPixels(offset, stride)` puis la dessine avec
  *   `lockCanvas(dirty)`, dont la doc garantit que les pixels hors de la zone sont conservés ;
  * - le Bitmap, le [Rect] de zone et le [Paint] sont alloués **une seule fois** : aucune allocation par image ;
+ * - **seuls les rectangles modifiés sont copiés** dans le Bitmap (SS-062, voir [DirtyRegion]), mais c'est leur boîte
+ *   englobante qui est redessinée sur la surface : `lockCanvas` exige de tout redessiner dans la zone qu'on lui donne ;
  * - le dessin se fait sur le thread appelant (le thread I/O), sans thread de rendu supplémentaire
  *   (ARCHITECTURE.md : mesurer avant d'en ajouter un).
  *
@@ -67,6 +70,10 @@ class RemoteSurfaceView @JvmOverloads constructor(
 
     private val renderLock = Any()
 
+    /** Compteurs de performance (SS-060) ; `null` ou désactivés : un rendu ne coûte qu'une lecture de booléen de plus. */
+    @Volatile
+    var perfStats: PerfStats? = null
+
     // Tout ce qui suit est protégé par renderLock.
     private var framebuffer: Framebuffer? = null
     private var dirty: DirtyRegion? = null
@@ -80,6 +87,8 @@ class RemoteSurfaceView @JvmOverloads constructor(
 
     // Réutilisés à chaque image : aucune allocation par rendu.
     private val takenBounds = IntArray(4)
+    private val copyRects = IntArray(4 * DirtyRegion.MAX_RECTS) // rectangles à copier dans le Bitmap (SS-062)
+    private var copyRectCount = 0
     private val lockRect = Rect()
     private val imageRect = Rect()
     private val matrix = Matrix()
@@ -189,13 +198,20 @@ class RemoteSurfaceView @JvmOverloads constructor(
             lockRect.set(0, 0, surfaceWidth, surfaceHeight)
         } else if (needsFullRedraw) {
             region.clear() // le rendu complet couvre déjà tout ce qui était en attente
+            copyRectCount = 0
             lockRect.set(0, 0, surfaceWidth, surfaceHeight)
         } else {
-            if (!region.take(takenBounds)) return
+            copyRectCount = region.take(takenBounds, copyRects)
+            if (copyRectCount == 0) return
             // Un serveur plus grand que l'écran peut modifier des pixels hors de la surface : on les ignore.
             if (!lockRect.setIntersect(takenBounds, surfaceWidth, surfaceHeight)) return
         }
 
+        val stats = perfStats?.takeIf { it.enabled }
+        val startNs = if (stats != null) System.nanoTime() else 0L
+        val wasFull = needsFullRedraw
+        var copied = 0L
+        var copyNanos = 0L
         val canvas = holder.lockCanvas(lockRect) ?: return
         try {
             // lockCanvas peut avoir agrandi lockRect : c'est la zone que l'on doit réellement peindre.
@@ -208,7 +224,9 @@ class RemoteSurfaceView @JvmOverloads constructor(
                 val bottom = minOf(fb.height, lockRect.bottom)
                 if (right > left && bottom > top) {
                     // Seule la zone à dessiner est copiée : offset = premier pixel, stride = largeur du framebuffer.
-                    bmp.setPixels(fb.pixels, top * fb.width + left, fb.width, left, top, right - left, bottom - top)
+                    val copyStart = if (stats != null) System.nanoTime() else 0L
+                    copied = copyIntoBitmap(bmp, fb, left, top, right, bottom, wasFull)
+                    if (stats != null) copyNanos = System.nanoTime() - copyStart
                     lockRect.set(left, top, right, bottom)
                     canvas.drawBitmap(bmp, lockRect, lockRect, paint)
                 }
@@ -217,6 +235,35 @@ class RemoteSurfaceView @JvmOverloads constructor(
         } finally {
             holder.unlockCanvasAndPost(canvas)
         }
+        if (stats != null) {
+            val total = System.nanoTime() - startNs
+            stats.onRender(wasFull, copied, copyNanos, total - copyNanos, (fb?.width ?: 0) * (fb?.height ?: 0))
+        }
+    }
+
+    /**
+     * Copie du framebuffer dans le Bitmap (SS-062). [all] (rendu complet) : toute la zone (left, top, right, bottom) ; sinon
+     * **seulement les rectangles réellement modifiés** ([copyRects]), rognés à cette zone : le Bitmap contient déjà le reste de
+     * l'image à jour, donc deux petites zones éloignées ne font plus copier la boîte qui les contient.
+     * @return le nombre de pixels copiés.
+     */
+    private fun copyIntoBitmap(bmp: Bitmap, fb: Framebuffer, left: Int, top: Int, right: Int, bottom: Int, all: Boolean): Long {
+        if (all || copyRectCount == 0) {
+            bmp.setPixels(fb.pixels, top * fb.width + left, fb.width, left, top, right - left, bottom - top)
+            return (right - left).toLong() * (bottom - top)
+        }
+        var copied = 0L
+        for (i in 0 until copyRectCount) {
+            val o = 4 * i
+            val l = maxOf(left, copyRects[o])
+            val t = maxOf(top, copyRects[o + 1])
+            val r = minOf(right, copyRects[o + 2])
+            val b = minOf(bottom, copyRects[o + 3])
+            if (r <= l || b <= t) continue
+            bmp.setPixels(fb.pixels, t * fb.width + l, fb.width, l, t, r - l, b - t)
+            copied += (r - l).toLong() * (b - t)
+        }
+        return copied
     }
 
     /**
@@ -224,19 +271,27 @@ class RemoteSurfaceView @JvmOverloads constructor(
      */
     private fun renderScaledLocked(fb: Framebuffer, region: DirtyRegion, geo: RenderGeometry) {
         val bmp = bitmap ?: return
+        val stats = perfStats?.takeIf { it.enabled }
         val full = needsFullRedraw
+        var copied = 0L
+        var copyNanos = 0L
         if (full) {
             region.clear() // le rendu complet couvre déjà tout ce qui était en attente
             lockRect.set(0, 0, surfaceWidth, surfaceHeight)
+            val copyStart = if (stats != null) System.nanoTime() else 0L
             bmp.setPixels(fb.pixels, 0, fb.width, 0, 0, fb.width, fb.height)
+            if (stats != null) { copyNanos = System.nanoTime() - copyStart; copied = fb.width.toLong() * fb.height }
         } else {
-            if (!region.take(takenBounds)) return
+            copyRectCount = region.take(takenBounds, copyRects)
+            if (copyRectCount == 0) return
             val l = maxOf(0, takenBounds[0])
             val t = maxOf(0, takenBounds[1])
             val r = minOf(fb.width, takenBounds[2])
             val b = minOf(fb.height, takenBounds[3])
             if (r <= l || b <= t) return
-            bmp.setPixels(fb.pixels, t * fb.width + l, fb.width, l, t, r - l, b - t)
+            val copyStart = if (stats != null) System.nanoTime() else 0L
+            copied = copyIntoBitmap(bmp, fb, l, t, r, b, false)
+            if (stats != null) copyNanos = System.nanoTime() - copyStart
             // Zone de l'écran touchée : la boîte élargie d'un pixel du framebuffer (le filtre bilinéaire lit les voisins),
             // arrondie vers l'extérieur, limitée à l'image.
             val s = geo.scale
@@ -249,6 +304,7 @@ class RemoteSurfaceView @JvmOverloads constructor(
             if (lockRect.isEmpty) return
         }
 
+        val drawStart = if (stats != null) System.nanoTime() else 0L
         val canvas = holder.lockCanvas(lockRect) ?: return
         try {
             // lockCanvas peut avoir agrandi lockRect : c'est la zone que l'on doit réellement repeindre. Le canvas est déjà
@@ -262,6 +318,7 @@ class RemoteSurfaceView @JvmOverloads constructor(
         } finally {
             holder.unlockCanvasAndPost(canvas)
         }
+        stats?.onRender(full, copied, copyNanos, System.nanoTime() - drawStart, fb.width * fb.height)
     }
 
     /** Intersection de la boîte [bounds] (gauche, haut, droite, bas) avec la surface ; `false` si elle est vide. */

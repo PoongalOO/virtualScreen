@@ -122,13 +122,13 @@ Backoff borné, désactivable. *(Fait : `ConnectionController` (boucle de reconn
 ## Epic E6 — Performance
 
 ### SS-060 — Instrumenter FPS et débit — P1
-Mesures désactivables et peu coûteuses.
+Mesures désactivables et peu coûteuses. *(Fait : package `perf/` (`PerfStats`, `TrafficCounter`, `PerfSampler`, `PerfSnapshot`), crochets dans `ServerMessageReader`, `RfbSocket`, `ConnectionController`, `RemoteSurfaceView`, bandeau + ligne de journal `SecondScreenPerf` (nombres seulement), case dans Diagnostic. **Désactivé par défaut** ; désactivé = une lecture de booléen par point de mesure. 26 tests, 3 mutations détectées, vérifié sur la tablette. **Limite : le coût des mesures activées n'a pas pu être chiffré** (bruit d'exécution supérieur à l'effet). Le temps de « décodage » inclut l'attente réseau. Voir PERFORMANCE.md.)*
 
 ### SS-061 — Mesurer allocations — P1
 Session de référence de 30 min puis 2 h.
 
 ### SS-062 — Réduire copies framebuffer — P1
-Objectif : aucune copie plein écran inutile par update.
+Objectif : aucune copie plein écran inutile par update. *(Fait : `DirtyRegion` garde jusqu'à 8 rectangles distincts, `RemoteSurfaceView.copyIntoBitmap` ne copie que ceux-là, la boîte englobante restant seule redessinée. Mesuré sur la GT-P5110 : copie 22,4 → 0,2 ms par rendu pour des zones éparses ; aucun gain ni perte pour une grande zone ; 0 copie plein écran. Image identique au pixel près (client RFB indépendant), mutation détectée. **Limites** : le coût de dessin (~20 ms, fixe) devient le plafond (~50 rendus/s) et n'a pas baissé ; la baisse de CPU est indicative ; regrouper les mises à jour n'a pas été fait faute de mesure qui le justifie. Voir PERFORMANCE.md.)*
 
 ### SS-063 — Benchmark RAW vs Hextile — P2
 Mesurer CPU, réseau, FPS et latence sur GT-P5110 réelle.

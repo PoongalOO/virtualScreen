@@ -17,6 +17,8 @@ import fr.webinfoconcept.secondscreen.profile.KeyValueStore
  * @property fitToScreen **ajuster à l'écran** avec bandes noires et ratio conservé, même un écran distant en 1280×800
  *   (SS-033). Faux par défaut : un 1280×800 est alors dessiné pixel pour pixel (SS-032), rogné des 48 lignes du bas si la
  *   barre système est visible. Un écran distant qui n'est pas en 1280×800 est toujours ajusté, quel que soit ce réglage.
+ * @property showPerformance afficher les **mesures de performance** (images par seconde, débit, temps de rendu...) sur l'écran
+ *   distant (SS-060). Faux par défaut : les mesures coûtent un peu de temps processeur et ne servent qu'à diagnostiquer.
  *
  * @param store stockage clé/valeur (`SharedPreferences` sur Android, en mémoire dans les tests).
  */
@@ -30,12 +32,17 @@ class DisplaySettings(private val store: KeyValueStore) {
         get() = store.all()[KEY_FIT] == TRUE
         set(value) = store.apply(mapOf(KEY_FIT to if (value) TRUE else FALSE))
 
+    var showPerformance: Boolean
+        get() = store.all()[KEY_PERF] == TRUE
+        set(value) = store.apply(mapOf(KEY_PERF to if (value) TRUE else FALSE))
+
     companion object {
         /** Nom du fichier de préférences (distinct de celui des profils). */
         const val FILE_NAME = "display_settings"
 
         private const val KEY_FULLSCREEN = "fullscreen"
         private const val KEY_FIT = "fit_to_screen"
+        private const val KEY_PERF = "show_performance"
         private const val TRUE = "true"
         private const val FALSE = "false"
     }

@@ -84,5 +84,28 @@
             android:textColor="@color/text_primary"
             android:textSize="18sp" />
 
+        <!-- Mesures de performance (SS-060) : activées ici, affichées sur l'écran distant. -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/diagnostic_perf_label"
+            android:textAllCaps="true"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <CheckBox
+            android:id="@+id/check_perf"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/diagnostic_perf_toggle" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/diagnostic_perf_note"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
     </LinearLayout>
 </ScrollView>

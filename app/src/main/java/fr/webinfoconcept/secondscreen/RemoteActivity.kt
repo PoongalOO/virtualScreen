@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -23,6 +24,8 @@ import fr.webinfoconcept.secondscreen.input.PointerMapper
 import fr.webinfoconcept.secondscreen.input.PointerPosition
 import fr.webinfoconcept.secondscreen.input.TouchpadActions
 import fr.webinfoconcept.secondscreen.input.TouchInput
+import fr.webinfoconcept.secondscreen.perf.PerfSampler
+import fr.webinfoconcept.secondscreen.perf.PerfSnapshot
 import fr.webinfoconcept.secondscreen.profile.PreferencesStore
 import fr.webinfoconcept.secondscreen.render.RemoteSurfaceView
 import fr.webinfoconcept.secondscreen.session.ConnectionController
@@ -100,6 +103,8 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     private lateinit var fullscreenButton: Button
     private lateinit var scaleButton: Button
     private lateinit var stopAuto: Button
+    private lateinit var perfHud: TextView
+    private val perfSampler by lazy { PerfSampler(SessionManager.perf) }
     private lateinit var connectionSettings: ConnectionSettings
     private var fitToScreen = false
     private lateinit var keys: View
@@ -165,6 +170,8 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         setUpPointerMode()
         setUpKeyboard()
 
+        perfHud = findViewById(R.id.remote_perf)
+        surface.perfStats = SessionManager.perf // les mesures sont faites seulement si elles sont activées
         connectionSettings = ConnectionSettings(PreferencesStore(this, ConnectionSettings.FILE_NAME))
         stopAuto = findViewById(R.id.remote_stop_auto)
         stopAuto.setOnClickListener { controller.stopAutoReconnect() }
@@ -319,6 +326,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     override fun onStart() {
         super.onStart()
         keepSessionOnStop = false
+        applyPerformanceSetting()
         controller.addListener(this)
         controller.setRenderTarget(surface)
         render(controller.state, controller.failure)
@@ -326,6 +334,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     override fun onStop() {
         overlay.removeCallbacks(countdown)
+        perfHud.removeCallbacks(perfTick)
         touchInput.cancelGesture()
         controller.removeListener(this)
         controller.setRenderTarget(null)
@@ -461,6 +470,54 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         if (auto?.waiting == true) overlay.postDelayed(countdown, COUNTDOWN_TICK_MS) // le compte à rebours se met à jour seul
     }
 
+    // ------------------------------------------------------------------ mesures de performance (SS-060)
+
+    /** Active ou désactive les mesures selon le réglage, et le bandeau de chiffres avec elles. */
+    private fun applyPerformanceSetting() {
+        val enabled = DisplaySettings(PreferencesStore(this, DisplaySettings.FILE_NAME)).showPerformance
+        val perf = SessionManager.perf
+        perfHud.removeCallbacks(perfTick)
+        if (enabled) {
+            if (!perf.enabled) {
+                perf.reset()
+                perf.enabled = true
+            }
+            perfSampler.reset() // référence neuve : la première seconde ne compte pas ce qui précède
+            perfHud.visibility = View.VISIBLE
+            perfHud.text = ""
+            perfHud.postDelayed(perfTick, PERF_TICK_MS)
+        } else {
+            perf.enabled = false
+            perfHud.visibility = View.GONE
+        }
+    }
+
+    private val perfTick = object : Runnable {
+        override fun run() {
+            val heap = Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }
+            val snapshot = perfSampler.sample(System.nanoTime(), heap)
+            perfHud.text = perfText(snapshot)
+            // Une ligne de chiffres par seconde dans le journal, pour les mesures : aucun contenu d'écran ni saisie.
+            Log.i(PERF_TAG, perfLogLine(snapshot))
+            perfHud.postDelayed(this, PERF_TICK_MS)
+        }
+    }
+
+    private fun perfText(p: PerfSnapshot): String {
+        fun f(v: Float) = String.format(java.util.Locale.getDefault(), "%.1f", v)
+        return getString(R.string.perf_hud_updates, f(p.updatesPerSecond), f(p.rendersPerSecond), f(p.megapixelsPerSecond)) + "\n" +
+            getString(R.string.perf_hud_network, f(p.bytesReceivedPerSecond / 1024f), f(p.bytesSentPerSecond / 1024f), f(p.decodeAvgMs), f(p.decodeMaxMs)) + "\n" +
+            getString(R.string.perf_hud_render, f(p.renderAvgMs), f(p.copyAvgMs), f(p.drawAvgMs), f(p.renderMaxMs), f(p.copiedPixelsPerRender / 1000f), p.fullScreenCopies.toInt()) + "\n" +
+            getString(R.string.perf_hud_system, p.cpuPercent, (p.heapUsedKb / 1024).toInt())
+    }
+
+    private fun perfLogLine(p: PerfSnapshot): String =
+        "maj/s=%.1f rendus/s=%.1f mpx/s=%.2f rx_ko/s=%d tx_ko/s=%d decod_ms=%.1f(max %.1f) rendu_ms=%.1f copie_ms=%.1f dessin_ms=%.1f(max %.1f) kpx_copies=%d plein_ecran=%d rendus_complets=%d cpu=%d tas_ko=%d".format(
+            java.util.Locale.US, p.updatesPerSecond, p.rendersPerSecond, p.megapixelsPerSecond, p.bytesReceivedPerSecond / 1024,
+            p.bytesSentPerSecond / 1024, p.decodeAvgMs, p.decodeMaxMs, p.renderAvgMs, p.copyAvgMs, p.drawAvgMs, p.renderMaxMs,
+            p.copiedPixelsPerRender / 1000, p.fullScreenCopies, p.fullRedraws, p.cpuPercent, p.heapUsedKb
+        )
+
     /** Met à jour le compte à rebours de la reconnexion automatique, une fois par seconde. */
     private val countdown = object : Runnable {
         override fun run() {
@@ -554,6 +611,8 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     private companion object {
         const val SEEK_MAX = 100
         const val COUNTDOWN_TICK_MS = 1_000L
+        const val PERF_TICK_MS = 1_000L
+        const val PERF_TAG = "SecondScreenPerf"
 
         // Taille avant la première session : celle de la tablette cible (nominale, AGENTS.md).
         const val FALLBACK_WIDTH = 1280

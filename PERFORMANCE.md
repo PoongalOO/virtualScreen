@@ -113,6 +113,27 @@ Le contrôle final sans trafic revient au niveau initial : l'effet vient du batt
 
 Un seul appareil, un serveur TigerVNC dans un conteneur, quelques dizaines de secondes par cas ; ce sont des ordres de grandeur, pas un benchmark (SS-060, SS-062, SS-063). Aucune optimisation n'a été faite : la première à essayer serait un filtrage plus léger ou un rendu partiel plus fin, à justifier par une mesure.
 
+## Copies du framebuffer (SS-060, SS-062)
+
+Mesuré **avec l'instrumentation de SS-060** (bandeau + journal `SecondScreenPerf`, moyennes par seconde après 3 s de démarrage, ~17 s par scénario) sur la GT-P5110, TigerVNC 1280×800 dans un conteneur, RAW, surface 1280×752 (rendu mis à l'échelle). Mesures « avant » : même code, boîte englobante seule.
+
+| Scénario | | Mises à jour/s | Copie par rendu | Dessin par rendu | Pixels copiés par rendu | CPU (1 cœur) |
+|---|---|---|---|---|---|---|
+| **2 petites zones aux coins opposés** | avant | | 22,4 ms | 18,3 ms | ~644 000 | 71 % |
+| | **après** | 20,3 | **0,2 ms** | 23,2 ms | **~0 (quelques milliers)** | 42 % (1) |
+| Terminal qui défile (grande zone) | avant | | 16,0 ms | | ~652 000 | 84 % |
+| | après | 4,3 | 17,5 ms | 19,2 ms | ~676 000 | 70 % |
+| Horloge (une petite zone) | après | 1,2 | 0,2 ms | 19,7 ms | ~0 | 2 % |
+
+- **Le gain est sur la copie** : 22,4 → 0,2 ms par rendu pour des zones éparses. Pour une grande zone qui change vraiment (défilement), il n'y a **ni gain ni perte** (les 650 000 pixels sont réellement modifiés), comme attendu.
+- **(1) Le CPU est bruité** : sur une charge fixe, six exécutions de 30 s ont donné 31 à 33 % ou 48 à 51 % du cœur **quel que soit le réglage des mesures**, sans que j'aie identifié la cause de ces deux régimes. La baisse de CPU de 71 % à 42 % est donc **indicative**, pas démontrée ; la baisse du temps de copie, elle, se lit directement sur les chronomètres.
+- **Le dessin n'a pas baissé** (18,3 → 23,2 ms sur le scénario éparse) : la boîte englobante est toujours entièrement repeinte, et cette valeur varie d'une exécution à l'autre. Le coût fixe du dessin (~18 à 23 ms) est désormais le plafond : ~50 rendus/s au mieux. Le réduire demanderait de ne plus utiliser `lockCanvas` sur une zone couvrant les deux rectangles (par exemple un rendu par rectangle), non essayé faute de mesure qui le justifie.
+- **Copies plein écran : 0** dans tous les scénarios (le défilement copie ~66 % du framebuffer, sous le seuil de 90 %).
+- **Coût des mesures elles-mêmes** : **non chiffré**. La comparaison mesures activées / désactivées est noyée dans le bruit ci-dessus. Désactivées, chaque point de mesure ne fait qu'une lecture de booléen ; activées, elles ajoutent deux `nanoTime` par rendu, quelques compteurs atomiques et un échantillonnage par seconde.
+- Un seul appareil, un seul serveur, une seule configuration : ce sont des ordres de grandeur.
+
+**Exactitude de l'image après copie partielle** (les optimisations ne doivent pas changer un pixel) : trois fenêtres éloignées mises à jour en continu, puis figées ; capture de la tablette comparée au **framebuffer serveur lu par un client RFB indépendant** : **0 pixel différent** en plein écran 1:1 (zone visible, hors barre système). Sur le rendu mis à l'échelle : image après mises à jour partielles comparée à l'image du rendu complet après reconnexion : **0 pixel différent**. Mutation (ne copier que le premier rectangle) : **5 983 pixels faux** en 1:1 et **6 127** mis à l'échelle, donc le contrôle détecte bien le défaut.
+
 ## Mesures avant optimisation
 
 Toujours mesurer RAW avant d'implémenter un encodage plus complexe. Hextile économise potentiellement du réseau mais consomme du CPU. Le meilleur compromis doit être établi sur la tablette réelle.

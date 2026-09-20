@@ -68,12 +68,13 @@ thread I/O : décodeur écrit les pixels -> rectangleListener (zone modifiée) -
                 copie de la SEULE zone modifiée dans le Bitmap (setPixels offset/stride), dessin via lockCanvas(dirty)
 ```
 
-`render/RemoteSurfaceView` (un `SurfaceView`) implémente `RenderTarget` : le décodeur écrit ses pixels **puis** signale le rectangle, et demande le rendu **une fois par `FramebufferUpdate`**. `DirtyRegion` retient la boîte englobante des rectangles (sans allocation, thread-safe). Le rendu se fait sur le thread appelant (le thread I/O), sans thread de rendu supplémentaire, conformément à « mesurer avant d'ajouter un thread ».
+`render/RemoteSurfaceView` (un `SurfaceView`) implémente `RenderTarget` : le décodeur écrit ses pixels **puis** signale le rectangle, et demande le rendu **une fois par `FramebufferUpdate`**. `DirtyRegion` retient la boîte englobante des rectangles **et jusqu'à 8 rectangles distincts** (sans allocation, thread-safe ; SS-062). Le rendu se fait sur le thread appelant (le thread I/O), sans thread de rendu supplémentaire, conformément à « mesurer avant d'ajouter un thread ».
 
 - **Aucun verrou sur les pixels** : la visibilité des écritures est garantie par le verrou du `DirtyRegion` (le décodeur écrit puis appelle `add`, le rendu appelle `take` puis lit). Un rectangle en cours de décodage qui recouvre une zone déjà signalée peut donc être visible à moitié pendant une image, corrigé à la suivante.
 - **`renderLock`** sérialise le dessin avec `surfaceDestroyed` : après le retour de ce callback plus aucun dessin n'est en cours.
 - Bitmap, `Rect` de zone et `Paint` sont alloués **une fois** ; un Bitmap neuf (vide) impose un rendu complet, décidé *avant* de choisir la zone à dessiner.
-- **Le compromis de la boîte englobante** : deux petites zones éloignées donnent une grande zone à copier. Choix simple et sans allocation ; un suivi plus fin serait une optimisation à justifier par mesure (SS-062).
+- **Copie par rectangles distincts (SS-062)** : `Bitmap.setPixels` coûte ~35 ns par pixel sur la GT-P5110, alors que `lockCanvas` + dessin + `unlockCanvasAndPost` est un coût **à peu près fixe** (~18 à 23 ms par rendu). Avec la seule boîte englobante, deux petites zones éloignées (deux coins, par exemple) faisaient copier ~644 000 pixels (~22 ms) pour en avoir modifié ~4 000. `DirtyRegion` garde donc jusqu'à `MAX_RECTS` = 8 rectangles distincts : deux rectangles qui se recouvrent ou se touchent fusionnent, deux autres fusionnent si la boîte qui les contient ne gaspille pas plus de 2 fois leur surface cumulée (deux lignes de texte voisines = une copie), et au-delà de 8 on fusionne la paire la moins coûteuse. `take(bounds, rects)` rend la boîte englobante (à **redessiner** : `lockCanvas` exige de repeindre toute la zone qu'on lui donne) et les rectangles (à **copier**). La surface copiée n'est jamais supérieure à celle de la boîte. Un rendu complet (Bitmap neuf, surface recréée) copie tout, comme avant. Le chemin mis à l'échelle utilise la même copie ; son dessin reste découpé à la boîte.
+- **Ce qui n'est pas fait, volontairement** : regrouper plusieurs `FramebufferUpdate` en un seul rendu, ou rendre sur un thread séparé. Le coût de dessin est fixe (~20 ms), donc le plafond est d'environ 50 rendus/s ; aucune mesure n'a montré que ce plafond était atteint en usage réel, et regrouper ajouterait de la latence.
 
 ### Fidélité 1:1 (SS-032)
 
@@ -141,6 +142,17 @@ Suffisant pour du texte et des applications de bureau, pas pour de la vidéo ple
 | Toucher puis Retour sur la barre réapparue / touche Retour barre cachée / Accueil | l'application se ferme ou passe en arrière-plan à chaque fois |
 
 **Non vérifié** : le retournement de la tablette d'un paysage à l'autre. `sensorLandscape` suit le capteur et ignore le réglage de rotation forcée : mon essai avec `user_rotation` n'a jamais changé l'orientation, il n'établit donc rien.
+
+## Mesures de performance (SS-060)
+
+Package `perf/`, **désactivé par défaut** (case « Afficher FPS et débit » de l'écran Diagnostic, mémorisée dans `DisplaySettings.showPerformance`).
+
+- `PerfStats` : compteurs `AtomicLong` (mises à jour, rectangles, pixels décodés, temps de décodage, rendus, temps de copie/dessin, pixels copiés, copies plein écran, octets reçus/envoyés, CPU du thread de session). Chaque point de mesure commence par **une lecture d'un booléen `@Volatile`** ; désactivé, il ne fait rien d'autre (pas d'appel à `nanoTime`, aucune allocation). L'horloge CPU du thread est **injectée** (`Debug.threadCpuTimeNanos`, API 1) pour que la logique reste testable sur la JVM.
+- `TrafficCounter` : octets reçus (via un `FilterInputStream` posé **sous** le `BufferedInputStream`, donc les octets réels du socket) et envoyés (`RfbSocket.write`). Nombres seulement : jamais de contenu, donc rien de secret.
+- `PerfSampler` / `PerfSnapshot` : calcul **pur** des débits par seconde à partir de deux relevés de compteurs (testé sans Android).
+- `RemoteActivity` échantillonne **une fois par seconde** sur le thread UI (aucun réseau) : bandeau `remote_perf` (4 lignes : mises à jour, réseau, rendu, système) et une ligne de journal `SecondScreenPerf` faite **de nombres uniquement**.
+- « Copies plein écran » : un rendu **partiel** qui copie ≥ 90 % du framebuffer. Doit rester à 0 en usage normal ; un rendu complet légitime (première image, surface recréée) n'y est pas compté.
+- Le temps de « décodage » d'une mise à jour **inclut l'attente réseau** du reste du message : c'est un temps de réception + décodage, pas du CPU pur (le CPU du thread de session, lui, est mesuré à part).
 
 ## Entrées (SS-040 à SS-044)
 
