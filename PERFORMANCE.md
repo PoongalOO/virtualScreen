@@ -29,6 +29,8 @@ La GT-P5110 est un matériel ancien. Le projet optimise d'abord la stabilité, l
 | `writeRect` 64×64 / `fillRect` 16×16 | ~42 µs / ~6 µs | sonde SS-020 |
 | Décodage RAW plein écran 1280×800 (4 Mio), loopback local, **sans Wi-Fi** | ~100–105 ms (médiane de 5 essais ; min 97, max 140) | sonde SS-023/024 |
 | Réception RAW plein écran par **Wi-Fi** (4 Mio) | ~1,4 s (≈ 2,9 Mio/s), 3 essais : 1 406 / 1 386 / 1 438 ms | sonde SS-023/024 |
+| Rendu partiel, cadence libre : 1 image = 2 rectangles 64×64 + un `lockCanvas(dirty)`/`unlockCanvasAndPost` | **50 à 67 images/s** (408 en 8,1 s ; 459 en 6,9 s ; 600 en 10,9 s) | pilote de test SS-031 |
+| Ramasse-miettes pendant l'animation, régime établi (~22 s) | **0 événement** | pilote de test SS-031 |
 | Rejet d'un rectangle hors écran, d'un encodage, d'un type de message ou d'un `ServerCutText` invalides (loopback local) | 0–1 ms | sonde SS-023/024 |
 | Écran complet 1280×800 d'un vrai bureau (TigerVNC, terminaux à l'écran), **RAW seul**, par Wi-Fi, demande → écran décodé | ~1 700 ms | sonde SS-025/026, 1 essai |
 | Même écran, **Hextile**, par Wi-Fi | ~90 ms (90 et 92 ms sur 2 essais) | sonde SS-025/026 |
@@ -45,6 +47,12 @@ Observation de SS-025/026 :
 
 - **Hextile change l'ordre de grandeur pour un bureau d'applications** : sur un vrai bureau (TigerVNC, fond uni et terminaux de texte), l'écran complet arrive en ~90 ms en Hextile contre ~1 700 ms en RAW, soit environ 19 fois plus vite, décodage inclus, avec un écran reconstruit identique au serveur. **Portée limitée** : un seul bureau de test, surtout uni ou en texte, quelques essais. Hextile est très favorable à ce type de contenu et le serait beaucoup moins pour de la vidéo ou des photos (tuiles brutes). C'est un premier indice en faveur du choix d'encodage, pas le benchmark de SS-063, qui devra comparer RAW et Hextile sur plusieurs types de contenu.
 - **CopyRect n'a pas de coût de réseau** : un défilement de terminal envoie 4 octets par rectangle au lieu des pixels ; pendant le test, ~26 millions de pixels ont été reconstruits par copie interne (`copyRect`, sans allocation) sur ~270 mises à jour.
+
+Observations de SS-031 :
+
+- **Le rendu par zone suit le rythme des petites mises à jour** : ~55 images/s pour des rectangles de 64×64, sans allocation mesurable (aucun passage du ramasse-miettes en 22 s). La dispersion entre essais (50 à 67) n'a pas été expliquée.
+- **Portée limitée** : c'est un pilote de test (un carré qui bouge), pas un vrai flux de décodage. Le coût d'un rendu **plein écran** (~4 Mio à copier dans le Bitmap puis à dessiner) n'est pas mesuré ici ; il l'est pour la partie framebuffer (~15 ms, voir plus haut) mais pas pour `setPixels` + `drawBitmap`. C'est le travail de SS-060/SS-062 avec une vraie session.
+- Le critère « sans allocation massive par frame » de SS-031 est vérifié par l'absence de ramasse-miettes, pas par un compteur d'octets.
 
 Conséquences :
 

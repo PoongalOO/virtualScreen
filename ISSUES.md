@@ -79,7 +79,7 @@ Masquer au maximum le chrome système sans bloquer la sortie de l'application.
 Coordonnées exactes et état bouton.
 
 ### SS-041 — Tap = clic gauche — P0
-Down/up fiables sans double événement.
+Down/up fiables sans double événement. **À prendre en compte (mesuré en SS-034) :** sur Android 4.2, quand la barre système est masquée, le premier toucher qui la fait réapparaître n'est pas transmis à l'application ; voir ARCHITECTURE.md, « Mode immersif ».
 
 ### SS-042 — Drag — P0
 Déplacement avec bouton maintenu.

@@ -5,6 +5,7 @@
     <string name="main_status_detail">Android %1$s (API %2$d)</string>
     <string name="main_open_diagnostic">Diagnostic</string>
     <string name="main_open_render_test">Test de rendu</string>
+    <string name="main_open_render_animated">Test de rendu animé</string>
     <string name="remote_title">Écran distant</string>
 
     <string name="diagnostic_title">Diagnostic matériel</string>

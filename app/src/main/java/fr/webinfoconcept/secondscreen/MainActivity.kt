@@ -21,6 +21,11 @@ import android.widget.TextView
  */
 class MainActivity : Activity() {
 
+    private companion object {
+        /** Images de l'animation de test : assez pour mesurer la cadence, et une position finale déterministe. */
+        const val ANIMATION_FRAMES = 600
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -37,6 +42,14 @@ class MainActivity : Activity() {
 
         findViewById<Button>(R.id.btn_render_test).setOnClickListener {
             startActivity(Intent(this, RemoteActivity::class.java))
+        }
+
+        findViewById<Button>(R.id.btn_render_animated).setOnClickListener {
+            startActivity(
+                Intent(this, RemoteActivity::class.java)
+                    .putExtra(RemoteActivity.EXTRA_ANIMATE, true)
+                    .putExtra(RemoteActivity.EXTRA_FRAMES, ANIMATION_FRAMES)
+            )
         }
     }
 }

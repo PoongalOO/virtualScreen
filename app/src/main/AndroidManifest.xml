@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- SS-010 : connexion TCP vers le serveur VNC (RfbSocket). Seule permission demandée. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -30,11 +31,14 @@
             android:name=".DiagnosticActivity"
             android:label="@string/diagnostic_title" />
 
-        <!-- SS-030 : écran distant plein écran, non exporté. L'orientation paysage forcée et le mode immersif
-             (barre système) relèvent de SS-032/SS-034. -->
+        <!-- Écran distant plein écran, non exporté (SS-030). Paysage forcé (F03) : c'est un moniteur 1280×800 fixe,
+             pas une interface adaptative, donc l'avertissement Lint sur l'orientation verrouillée ne s'applique pas.
+             sensorLandscape autorise les deux paysages : la tablette peut être posée dans les deux sens. -->
         <activity
             android:name=".RemoteActivity"
             android:label="@string/remote_title"
-            android:theme="@style/RemoteTheme" />
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/RemoteTheme"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
     </application>
 </manifest>
