@@ -4,13 +4,19 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.Toast
+import android.widget.ToggleButton
 import android.widget.TextView
+import fr.webinfoconcept.secondscreen.input.KeyForwarder
+import fr.webinfoconcept.secondscreen.input.KeyboardInput
+import fr.webinfoconcept.secondscreen.input.KeyboardInputView
+import fr.webinfoconcept.secondscreen.input.Keysyms
 import fr.webinfoconcept.secondscreen.input.PointerActions
 import fr.webinfoconcept.secondscreen.input.PointerMapper
 import fr.webinfoconcept.secondscreen.input.TouchInput
@@ -44,8 +50,13 @@ import fr.webinfoconcept.secondscreen.ui.ViewSystemUiHost
  * ## Plein écran
  * Explicite et mémorisé ([DisplaySettings]) : voir [toggleFullscreen]. Par défaut la barre système reste visible.
  *
+ * ## Clavier (SS-046, SS-047)
+ * Le bouton Clavier de la barre active le **mode clavier** : clavier virtuel Android ([KeyboardInputView]) et rangée de
+ * touches spéciales (Échap, Tab, Ctrl, Alt, Maj, Suppr, Effacer, Entrée, flèches). Un clavier physique fonctionne sans ce
+ * mode. Retour ferme d'abord le clavier virtuel, puis le mode clavier.
+ *
  * ## Barre de commandes (SS-052)
- * Clavier, Pointeur (désactivés : SS-046/047 et SS-045), Diagnostic, Plein écran, Déconnexion. Elle s'affiche par la touche **Retour**
+ * Clavier (SS-046/047), Pointeur (désactivé : SS-045), Diagnostic, Plein écran, Déconnexion. Elle s'affiche par la touche **Retour**
  * ou un **tap à trois doigts**. Retour quand elle est visible quitte l'écran : la sortie reste toujours à deux gestes.
  */
 class RemoteActivity : Activity(), ConnectionController.Listener {
@@ -62,6 +73,13 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     private lateinit var progress: ProgressBar
     private lateinit var reconnect: Button
     private lateinit var fullscreenButton: Button
+    private lateinit var keys: View
+    private lateinit var keyboardView: KeyboardInputView
+    private lateinit var keyboard: KeyboardInput
+    private lateinit var forwarder: KeyForwarder
+    private lateinit var ctrlButton: ToggleButton
+    private lateinit var altButton: ToggleButton
+    private lateinit var shiftButton: ToggleButton
     private lateinit var settings: DisplaySettings
 
     /** Vrai quand on quitte cet écran pour le diagnostic : la session doit alors survivre à `onStop`. */
@@ -71,6 +89,9 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     private var windowFocused = false
     private var sessionShown = false
     private var fullscreen = false
+
+    /** Mode clavier : la rangée de touches spéciales est affichée et le clavier virtuel est demandé. */
+    private var keyboardMode = false
 
     // setOnSystemUiVisibilityChangeListener est déprécié depuis l'API 30 mais reste le seul moyen sur Android 4.2.
     @Suppress("DEPRECATION")
@@ -100,6 +121,8 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         fullscreenButton.setOnClickListener { toggleFullscreen() }
         updateFullscreenButton()
 
+        setUpKeyboard()
+
         reconnect.setOnClickListener { askReconnect() }
         findViewById<Button>(R.id.remote_close).setOnClickListener { leave() }
         findViewById<Button>(R.id.bar_disconnect).setOnClickListener { leave() }
@@ -110,6 +133,80 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
         immersive = ImmersiveController(ViewSystemUiHost(surface))
         surface.setOnSystemUiVisibilityChangeListener { immersive.onSystemUiVisibilityChange(it) }
+    }
+
+    /** Clavier virtuel (SS-046), touches physiques et rangée de touches spéciales (SS-047). */
+    private fun setUpKeyboard() {
+        keys = findViewById(R.id.remote_keys)
+        keyboardView = findViewById(R.id.remote_keyboard)
+        keyboard = KeyboardInput(controller.input)
+        forwarder = KeyForwarder(keyboard)
+        keyboardView.keyboard = keyboard
+        keyboardView.forwarder = forwarder
+
+        ctrlButton = findViewById(R.id.key_ctrl)
+        altButton = findViewById(R.id.key_alt)
+        shiftButton = findViewById(R.id.key_shift)
+        // Les boutons suivent l'état réel des modificateurs (un modificateur relâché après une frappe les décoche).
+        keyboard.listener = object : KeyboardInput.Listener {
+            override fun onModifiersChanged(ctrl: Boolean, alt: Boolean, shift: Boolean) {
+                ctrlButton.isChecked = ctrl
+                altButton.isChecked = alt
+                shiftButton.isChecked = shift
+            }
+        }
+        for ((button, modifier) in listOf(
+            ctrlButton to KeyboardInput.Modifier.CTRL,
+            altButton to KeyboardInput.Modifier.ALT,
+            shiftButton to KeyboardInput.Modifier.SHIFT
+        )) {
+            // Un clic bascule le bouton lui-même ; l'état affiché est ensuite remis à celui du modificateur (si le message
+            // n'est pas parti, le bouton ne reste pas coché à tort).
+            button.setOnClickListener { button.isChecked = keyboard.toggleModifier(modifier) }
+        }
+        for ((id, keysym) in listOf(
+            R.id.key_escape to Keysyms.ESCAPE,
+            R.id.key_tab to Keysyms.TAB,
+            R.id.key_delete to Keysyms.DELETE,
+            R.id.key_backspace to Keysyms.BACKSPACE,
+            R.id.key_enter to Keysyms.RETURN,
+            R.id.key_left to Keysyms.LEFT,
+            R.id.key_up to Keysyms.UP,
+            R.id.key_down to Keysyms.DOWN,
+            R.id.key_right to Keysyms.RIGHT
+        )) {
+            findViewById<Button>(id).setOnClickListener { keyboard.pressKey(keysym) }
+        }
+        findViewById<Button>(R.id.key_hide).setOnClickListener { exitKeyboardMode() }
+        findViewById<Button>(R.id.bar_keyboard).setOnClickListener {
+            if (keyboardMode) exitKeyboardMode() else enterKeyboardMode()
+        }
+    }
+
+    private fun enterKeyboardMode() {
+        keyboardMode = true
+        bar.visibility = View.GONE // la rangée de touches prend la place en haut
+        keys.visibility = View.VISIBLE
+        applyImmersive()
+        if (!keyboardView.showKeyboard()) Toast.makeText(this, R.string.keyboard_unavailable, Toast.LENGTH_LONG).show()
+    }
+
+    private fun exitKeyboardMode() {
+        if (!keyboardMode) return
+        keyboardMode = false
+        keys.visibility = View.GONE
+        keyboard.releaseModifiers() // jamais de Ctrl ou Alt laissé enfoncé côté serveur
+        keyboardView.hideKeyboard()
+        applyImmersive()
+    }
+
+    /**
+     * Clavier physique (USB, Bluetooth) : les touches vont au serveur tant que la session est établie. Les touches
+     * système (Retour, Accueil, volume...) restent à Android.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (controller.state == ConnectionState.CONNECTED && forwarder.onKeyEvent(event)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onStart() {
@@ -130,8 +227,9 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     }
 
     override fun onPause() {
-        // Un glissement en cours est relâché tant que l'envoyeur tourne encore.
+        // Un glissement en cours et les modificateurs sont relâchés tant que l'envoyeur tourne encore.
         touchInput.cancelGesture()
+        keyboard.releaseModifiers()
         super.onPause()
     }
 
@@ -151,7 +249,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
      * ([toggleFullscreen]) : par défaut la barre système reste visible pendant la session aussi.
      */
     private fun applyImmersive() {
-        val wanted = windowFocused && sessionShown && fullscreen && bar.visibility != View.VISIBLE
+        val wanted = windowFocused && sessionShown && fullscreen && bar.visibility != View.VISIBLE && !keyboardMode
         if (wanted) immersive.enable() else immersive.disable()
     }
 
@@ -183,7 +281,9 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     /** Retour : affiche la barre ; si elle est déjà visible (ou hors session), quitte l'écran. */
     override fun onBackPressed() {
-        if (controller.state == ConnectionState.CONNECTED && bar.visibility != View.VISIBLE) {
+        if (keyboardMode) {
+            exitKeyboardMode() // le clavier virtuel, lui, a déjà pris le premier Retour pour se masquer
+        } else if (controller.state == ConnectionState.CONNECTED && bar.visibility != View.VISIBLE) {
             toggleBar()
         } else {
             leave()
@@ -198,6 +298,11 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     private fun render(state: ConnectionState, failure: ConnectionFailure?) {
         sessionShown = state == ConnectionState.CONNECTED
+        if (!sessionShown) {
+            // Session perdue : le serveur a déjà relâché ce qui l'était ; on oublie sans rien envoyer et on ferme le clavier.
+            keyboard.reset()
+            exitKeyboardMode()
+        }
         applyImmersive()
         if (state == ConnectionState.CONNECTED) {
             attachSession()

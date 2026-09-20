@@ -94,10 +94,10 @@ Conversion en événements de molette VNC. *(Fait : `Scroll`, `ScrollListener`, 
 Sensibilité réglable.
 
 ### SS-046 — KeyEvent texte — P1
-Saisie ASCII/latin de base.
+Saisie ASCII/latin de base. *(Fait : `ClientMessages.keyEvent/keyPress/keyPresses`, `Keysyms`, `KeyboardInput`, `KeyboardInputView`, `ComposingDiff`, `KeyForwarder`. ASCII et Latin-1 directs, keysyms Unicode au-delà ; clavier virtuel et touches physiques.)*
 
 ### SS-047 — Touches spéciales — P1
-Ctrl, Alt, Shift, Tab, Esc, Enter, Backspace.
+Ctrl, Alt, Shift, Tab, Esc, Enter, Backspace. *(Fait : rangée de touches de l'écran distant (Échap, Tab, Ctrl, Alt, Maj, Suppr, Effacer, Entrée, flèches) ; Ctrl/Alt/Maj « à un coup », jamais coincés. Pas de répétition automatique d'une touche maintenue.)*
 
 ## Epic E5 — UX et profils
 
@@ -108,7 +108,7 @@ Hôte, port, sécurité, connexion. *(Fait : `ConnectActivity`, `ProfileForm`, `
 Nom/hôte/port, sans fuite de secret. *(Fait : `ProfileStore`, `MainActivity` (liste, suppression par appui long, dernier profil en tête).)*
 
 ### SS-052 — Barre de commandes distante — P1
-Clavier, mode pointeur, diagnostic, déconnexion. *(Fait pour Diagnostic et Déconnexion ; **Clavier et Pointeur sont des boutons désactivés** en attendant SS-046/SS-047 et SS-045. Affichage : touche Retour ou tap à trois doigts.)*
+Clavier, mode pointeur, diagnostic, déconnexion. *(Fait pour Diagnostic et Déconnexion ; **Clavier fait (SS-046/SS-047) ; Pointeur est un bouton désactivé** en attendant SS-045. Affichage : touche Retour ou tap à trois doigts.)*
 
 ### SS-053 — États et erreurs compréhensibles — P0
 Connexion, négociation, auth, timeout, réseau coupé. *(Fait : `ConnectionState`, `ConnectionFailure` (17 causes), `FailureMessages`, panneau d'état de l'écran distant, signe de vie pour détecter un réseau coupé.)*

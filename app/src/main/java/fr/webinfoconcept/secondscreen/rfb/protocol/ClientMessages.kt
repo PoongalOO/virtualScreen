@@ -12,6 +12,9 @@ package fr.webinfoconcept.secondscreen.rfb.protocol
  *
  * `FramebufferUpdateRequest` est envoyé tout au long de la session (SS-027), pas seulement au début.
  *
+ * `KeyEvent` (SS-046) : U8 type = 4, U8 flag « touche enfoncée » (1) ou relâchée (0), 2 octets de padding, U32 keysym -> 8
+ * octets. Le keysym est celui de X11 (voir [Keysyms]), pas un code de touche physique.
+ *
  * `PointerEvent` (SS-040) : U8 type = 5, U8 masque des boutons, U16 x, U16 y -> 6 octets. Les coordonnées sont celles
  * du **framebuffer distant** (pas de l'écran de la tablette) ; le masque dit quels boutons sont enfoncés *à cet instant*
  * (bit 0 = gauche, bit 1 = milieu, bit 2 = droit, bits 3 et 4 = molette haut/bas, voir [PointerButtons]).
@@ -24,11 +27,19 @@ object ClientMessages {
     const val TYPE_SET_PIXEL_FORMAT = 0
     const val TYPE_SET_ENCODINGS = 2
     const val TYPE_FRAMEBUFFER_UPDATE_REQUEST = 3
+    const val TYPE_KEY_EVENT = 4
     const val TYPE_POINTER_EVENT = 5
 
     const val SET_PIXEL_FORMAT_LENGTH = 4 + PixelFormat.WIRE_SIZE
     const val FRAMEBUFFER_UPDATE_REQUEST_LENGTH = 10
     const val POINTER_EVENT_LENGTH = 6
+    const val KEY_EVENT_LENGTH = 8
+
+    /** Longueur d'une frappe complète ([keyPress]) : appui puis relâchement. */
+    const val KEY_PRESS_LENGTH = 2 * KEY_EVENT_LENGTH
+
+    /** Plus grand nombre de frappes d'un seul message [keyPresses] (borne la taille : 16 octets par frappe). */
+    const val MAX_KEY_PRESSES = 32
 
     /** Longueur de [leftClick] : trois `PointerEvent`. */
     const val LEFT_CLICK_LENGTH = 3 * POINTER_EVENT_LENGTH
@@ -102,6 +113,48 @@ object ClientMessages {
      * elle n'ajoute au plus qu'un pixel à la zone demandée. Validé contre TigerVNC (PERFORMANCE.md).
      */
     fun keepAliveRequest(): ByteArray = framebufferUpdateRequest(incremental = true, x = 0, y = 0, w = 1, h = 1)
+
+    /**
+     * `KeyEvent` (SS-046) : la touche de keysym [keysym] est enfoncée ([down] = `true`) ou relâchée. Comme pour les boutons
+     * de la souris, le serveur suit l'état de chaque touche : un appui sans relâchement laisserait la touche enfoncée
+     * (répétition, Ctrl coincé). Les appels qui envoient des frappes complètes ([keyPress], [keyPresses]) mettent
+     * l'appui et le relâchement dans le même message.
+     *
+     * @throws IllegalArgumentException [keysym] nul ou négatif (0 signifie « aucune touche » : on ne l'envoie jamais).
+     */
+    fun keyEvent(down: Boolean, keysym: Int): ByteArray {
+        val message = ByteArray(KEY_EVENT_LENGTH)
+        writeKeyEvent(message, 0, down, keysym)
+        return message
+    }
+
+    /** Une frappe complète (appui puis relâchement de [keysym]) en **un seul message** de [KEY_PRESS_LENGTH] octets. */
+    fun keyPress(keysym: Int): ByteArray = keyPresses(intArrayOf(keysym))
+
+    /**
+     * Plusieurs frappes complètes à la suite, en **un seul message** de `16 × n` octets : pour chaque keysym un appui puis
+     * un relâchement. Aucune touche n'est jamais laissée enfoncée, même si le message est perdu en entier.
+     *
+     * @throws IllegalArgumentException liste vide, plus de [MAX_KEY_PRESSES] frappes, ou keysym nul ou négatif.
+     */
+    fun keyPresses(keysyms: IntArray): ByteArray {
+        require(keysyms.isNotEmpty() && keysyms.size <= MAX_KEY_PRESSES) {
+            "nombre de frappes hors de 1..$MAX_KEY_PRESSES : ${keysyms.size}"
+        }
+        val message = ByteArray(KEY_PRESS_LENGTH * keysyms.size)
+        for (i in keysyms.indices) {
+            writeKeyEvent(message, KEY_PRESS_LENGTH * i, true, keysyms[i])
+            writeKeyEvent(message, KEY_PRESS_LENGTH * i + KEY_EVENT_LENGTH, false, keysyms[i])
+        }
+        return message
+    }
+
+    private fun writeKeyEvent(message: ByteArray, offset: Int, down: Boolean, keysym: Int) {
+        require(keysym > 0) { "keysym invalide : $keysym" }
+        message.putU8At(offset, TYPE_KEY_EVENT)
+        message.putU8At(offset + 1, if (down) 1 else 0) // les 2 octets suivants sont le padding, déjà à zéro
+        message.putS32At(offset + 4, keysym)
+    }
 
     /**
      * `PointerEvent` (SS-040) : position du pointeur ([x], [y], en pixels du framebuffer distant) et état des

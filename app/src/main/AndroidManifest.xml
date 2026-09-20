@@ -40,6 +40,8 @@
         <!-- Écran distant plein écran, non exporté (SS-030). Paysage forcé (F03) : c'est un moniteur 1280×800 fixe,
              pas une interface adaptative, donc l'avertissement Lint sur l'orientation verrouillée ne s'applique pas.
              sensorLandscape autorise les deux paysages : la tablette peut être posée dans les deux sens.
+             windowSoftInputMode : le clavier virtuel se pose PAR-DESSUS l'écran distant sans le redimensionner (une
+             SurfaceView redimensionnée rognerait l'image).
              configChanges : retourner la tablette (paysage <-> paysage inversé) ne recrée pas l'activité, donc ne coupe
              pas la session. -->
         <activity
@@ -48,6 +50,7 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/RemoteTheme"
+            android:windowSoftInputMode="stateHidden|adjustNothing"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
     </application>
 </manifest>

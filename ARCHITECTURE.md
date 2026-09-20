@@ -204,7 +204,7 @@ Le mot de passe n'existe que dans un `CharArray`. `ConnectActivity` le copie, **
 `ProfileStore` (nom, hôte, port) sur `SharedPreferences` (`PreferencesStore`), **sans aucun champ de mot de passe** (un test vérifie que ni les classes ni les clés écrites n'ont de place pour un secret). Les données lues sont traitées comme non fiables : un profil incomplet ou invalide est ignoré. Un profil n'est enregistré **qu'une fois la connexion établie** (une faute de frappe qui échoue n'écrase pas un profil qui marchait) ; même nom = même profil ; 50 profils au plus. Le dernier profil utilisé est proposé en tête de liste (« Reconnecter : ... », F08). `android:allowBackup="false"` : rien n'est sauvegardé dans un cloud.
 
 ### Barre de commandes (SS-052)
-Clavier, Pointeur, Diagnostic, **Plein écran**, Déconnexion. Elle s'affiche par la touche **Retour** (toujours fiable) ou un **tap à trois doigts** (`ThreeFingerTap`). Quand elle est visible, Retour quitte l'écran : la sortie reste à deux gestes. **Clavier et Pointeur sont présents mais désactivés** : ils dépendent de SS-046/SS-047 et SS-045, non faits.
+Clavier, Pointeur, Diagnostic, **Plein écran**, Déconnexion. Elle s'affiche par la touche **Retour** (toujours fiable) ou un **tap à trois doigts** (`ThreeFingerTap`). Quand elle est visible, Retour quitte l'écran : la sortie reste à deux gestes. **Clavier** ouvre le mode clavier (voir « Clavier ») ; **Pointeur est présent mais désactivé** : il dépend de SS-045, non fait.
 
 **Hors plein écran** (défaut), Retour ouvre la barre et le tap à trois doigts la ferme **du premier coup**, y compris après une longue inactivité (vérifié). Retour quand la barre est visible quitte l'écran.
 
@@ -245,6 +245,41 @@ En plein écran le mode ne s'applique que **barre de commandes masquée** et **s
 **Non vérifié** : un PC Windows (seul TigerVNC sous Linux, dans un conteneur, a été essayé) ; une vraie coupure Wi-Fi de la tablette (elle a été simulée en arrêtant ou en gelant le serveur) ; le comportement à long terme (SS-061) ; le retournement physique de la tablette avec `configChanges` ; le tap à trois doigts sur une tablette laissée inactive (voir la limite du mode immersif : le premier toucher après quelques secondes est annulé par le système, donc le geste ne marche qu'une fois l'écran touché depuis moins de 3 s ; la touche Retour est la voie fiable).
 
 **Remarques de test** : la tablette d'essai était posée à l'envers (rotation 180°, capture d'écran retournée) ; `uiautomator` d'Android 4.2 ne montre pas les fenêtres de dialogue (la boîte de mot de passe existait bien, la capture d'écran le prouve) ; le serveur de test était joignable par Wi-Fi sur le réseau local seulement, le temps des essais.
+
+## Clavier (SS-046, SS-047)
+
+```text
+clavier virtuel Android ─► KeyboardInputView (InputConnection) ─┐
+touches physiques (USB, Bluetooth) ─► RemoteActivity.dispatchKeyEvent ─► KeyForwarder ─┤
+rangée de touches spéciales (boutons) ─────────────────────────────────────────────────┴─► KeyboardInput ─► controller.input ─► KeyEvent RFB
+```
+
+- **Message** (`ClientMessages.keyEvent`, 8 octets : type 4, flag appui/relâchement, 2 octets de padding, keysym U32). Le serveur suit l'état de chaque touche : comme pour la souris, **une frappe = appui + relâchement dans le même message** (`keyPress`, `keyPresses`, jusqu'à 32 frappes / 512 octets), donc une touche n'est jamais laissée enfoncée par un message perdu.
+- **Keysyms** (`Keysyms`) : RFB désigne le **symbole**, pas la touche physique. ASCII (U+0020..007E) et Latin-1 (U+00A0..00FF) : le point de code lui-même (définition des keysyms Latin-1) ; `\n` = Entrée, `\t` = Tab ; au-delà de U+00FF : keysym Unicode `0x01000000 + point de code` (euro, œ, grec, emoji : à la charge du serveur, vérifié avec TigerVNC) ; contrôles sans touche, moitiés de paires de substitution et valeurs invalides : **ignorés**, jamais envoyés. Un point de code hors plan de base est **une** frappe, pas deux.
+- **Clavier virtuel** (`KeyboardInputView`) : une `SurfaceView` n'est pas un éditeur de texte, une vue invisible de 1 dp se déclare donc éditeur et fournit une `InputConnection` **qui ne garde aucun texte** : tout ce que le clavier valide, propose ou supprime part au serveur. Options demandées au clavier : pas de suggestions (`NO_SUGGESTIONS`, mot de passe visible), pas d'édition plein écran, Entrée = vraie touche Entrée. Le clavier se pose **par-dessus** l'écran distant (`adjustNothing` : redimensionner la surface rognerait l'image).
+- **Texte provisoire** (`ComposingDiff`) : beaucoup de claviers proposent « bonjoru » puis corrigent en « bonjour » avant de valider. Le serveur ne connaît que des frappes : on envoie la partie nouvelle et, quand le clavier **corrige**, autant de Retour arrière que de caractères retirés (comptés en points de code, sur le texte **réellement envoyé**). Une suppression demandée par le clavier fige le texte provisoire.
+- **Touches spéciales** (rangée affichée par le bouton Clavier) : Échap, Tab, Ctrl, Alt, Maj, Suppr, Effacer, Entrée, ← ↑ ↓ →, Masquer. **Ctrl, Alt et Maj sont des bascules « à un coup »** : la touche est enfoncée tout de suite côté serveur et **relâchée après la prochaine frappe non modificatrice** (Ctrl puis `c` = Ctrl+C) ; dans un texte de plusieurs caractères le modificateur ne s'applique qu'au **premier**. Maj enfoncé transforme a-z en A-Z : sans cela les serveurs relâchent Maj pour un keysym minuscule. Un modificateur n'est mémorisé que si son message est parti.
+- **Jamais de modificateur coincé** : ils sont relâchés à la fermeture du mode clavier (bouton Masquer, Retour) et à la mise en pause de l'écran ; à la perte de session ils sont simplement oubliés (le serveur relâche de lui-même à la déconnexion).
+- **Retour** : le clavier virtuel prend le premier Retour pour se masquer, le second ferme le mode clavier, le suivant ouvre la barre de commandes comme d'habitude. La sortie de l'application reste à deux gestes.
+- **Touches physiques** (`KeyForwarder`) : disponibles en permanence pendant une session, sans ouvrir le mode clavier. Les touches système (Retour, Accueil, Menu, volume, marche/arrêt) restent à Android. Limite : un Maj/Ctrl/Alt **physique** gauche et la bascule à l'écran ont le même keysym ; les mélanger peut produire un relâchement superflu, que le serveur ignore.
+- **Confidentialité** : aucune frappe n'est journalisée ni conservée (un mot de passe peut être saisi à distance) ; elles circulent **non chiffrées** comme le reste de la session VNC (SECURITY.md).
+- **Immersif** : le mode plein écran est suspendu tant que le mode clavier est actif (la rangée de touches doit répondre du premier coup).
+
+### Vérifié
+| Vérification | Résultat |
+|---|---|
+| JVM, 70 tests (message, table de keysyms, composition, `KeyboardInput`) | vecteurs hexadécimaux du message ; toutes les valeurs de `keysymdef.h` recopiées à la main ; propriété sur des suites aléatoires : **aucune touche restée enfoncée** et **aucun relâchement d'une touche non enfoncée** ; propriété de composition : le texte distant égale toujours la dernière proposition |
+| Mutations : Ctrl non relâché, Maj sans majuscule, modificateurs non relâchés par `pressKey`, modificateur mémorisé sans message parti, calcul des effacements faussé | chacune fait échouer des tests |
+| Vrai TigerVNC + `xev` (témoin indépendant), depuis la JVM | `Hello, é€` + Entrée : keysyms `H e l l o comma space eacute U20AC Return` ; **Ctrl+c** (état `0x4`, Ctrl relâché après) ; **Maj+a** -> `A` (état `0x1`) ; **Alt+x** (état `0x8`) ; Échap, Tab, Retour arrière, Entrée, ← ; « bonjoru » corrigé en « bonjour » : `b o n j o r u BackSpace BackSpace u r` |
+| GT-P5110, **vrai clavier virtuel AZERTY**, touches a z e r | le serveur reçoit `a z e r` |
+| Idem, Ctrl / Maj / Alt (boutons) puis une touche du clavier virtuel | `Control_L` enfoncé, `c` avec l'état Ctrl, `Control_L` relâché ; idem `Shift_L` + `A` (état Maj) et `Alt_L` + `x` (état Alt) |
+| Idem, boutons Échap, Tab, Effacer, Entrée, ← de la rangée | `Escape`, `Tab`, `BackSpace`, `Return`, `Left` |
+| Idem, touches Effacer et Entrée **du clavier virtuel lui-même** (envoyées comme `KeyEvent` par l'IME) | `BackSpace`, `Return` |
+| Idem, touches physiques injectées (`adb shell input keyevent`) : Échap, ↑, Tab, F5, Page suiv. ; `input text "Ab1"` | `Escape Up Tab F5 Next` ; `Shift_L`+`A`, `b`, `1` |
+| Idem, Ctrl enfoncé puis Masquer | `Control_L` relâché à la fermeture du mode clavier |
+| Idem, Retour x3 ; Accueil avec Ctrl enfoncé | masque le clavier / ferme le mode / ouvre la barre ; Ctrl relâché côté serveur et connexion fermée |
+
+**Non vérifié** : un vrai clavier physique USB ou Bluetooth (les touches ont été injectées par `adb`, qui emprunte le même chemin `dispatchKeyEvent` mais pas un vrai périphérique) ; la saisie d'un caractère accentué ou de l'euro **au clavier virtuel** (la table est vérifiée depuis la JVM contre TigerVNC, pas depuis l'IME ; le clavier de la tablette valide chaque lettre au lieu de proposer un texte provisoire, donc le suivi des corrections n'a été vu que contre le serveur) ; AltGr (les caractères des couches AltGr comme `@` d'un clavier AZERTY passent comme keysyms, le serveur choisit la touche) ; un serveur Windows ; la répétition d'une touche de la rangée maintenue appuyée (chaque appui envoie une frappe, pas de répétition automatique) ; les claviers virtuels tiers (seul celui de la tablette a été essayé).
 
 ## Réseau (SS-064)
 

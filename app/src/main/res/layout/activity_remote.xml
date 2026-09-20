@@ -8,61 +8,209 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Barre de commandes : Back ou tap à trois doigts l'affiche/la masque. Clavier et pointeur sont réservés à
-         SS-046/SS-047 et SS-045 : désactivés tant que ces issues ne sont pas faites. -->
+    <!-- Conteneur du haut : la barre de commandes puis la rangée de touches spéciales. -->
     <LinearLayout
-        android:id="@+id/remote_bar"
-        style="?android:attr/buttonBarStyle"
+        android:id="@+id/remote_top"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:background="@color/bar"
-        android:orientation="horizontal"
-        android:padding="4dp"
-        android:visibility="gone">
+        android:orientation="vertical">
 
-        <Button
-            android:id="@+id/bar_keyboard"
-            style="?android:attr/buttonBarButtonStyle"
-            android:layout_width="0dp"
+        <!-- Barre de commandes : Retour ou tap à trois doigts l'affiche/la masque. Le pointeur est réservé à SS-045 :
+             désactivé tant que cette issue n'est pas faite. -->
+        <LinearLayout
+            android:id="@+id/remote_bar"
+            style="?android:attr/buttonBarStyle"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:enabled="false"
-            android:text="@string/bar_keyboard" />
+            android:background="@color/bar"
+            android:orientation="horizontal"
+            android:padding="4dp"
+            android:visibility="gone">
 
-        <Button
-            android:id="@+id/bar_pointer"
-            style="?android:attr/buttonBarButtonStyle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:enabled="false"
-            android:text="@string/bar_pointer" />
+            <Button
+                android:id="@+id/bar_keyboard"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/bar_keyboard" />
 
-        <Button
-            android:id="@+id/bar_diagnostic"
-            style="?android:attr/buttonBarButtonStyle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/bar_diagnostic" />
+            <Button
+                android:id="@+id/bar_pointer"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="@string/bar_pointer" />
 
-        <Button
-            android:id="@+id/bar_fullscreen"
-            style="?android:attr/buttonBarButtonStyle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/bar_fullscreen" />
+            <Button
+                android:id="@+id/bar_diagnostic"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/bar_diagnostic" />
 
-        <Button
-            android:id="@+id/bar_disconnect"
-            style="?android:attr/buttonBarButtonStyle"
-            android:layout_width="0dp"
+            <Button
+                android:id="@+id/bar_fullscreen"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/bar_fullscreen" />
+
+            <Button
+                android:id="@+id/bar_disconnect"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/bar_disconnect" />
+        </LinearLayout>
+
+
+        <!-- Touches spéciales (SS-047) : visible tant que le mode clavier est actif. Ctrl, Alt et Maj sont des bascules
+             « à un coup » : enfoncées jusqu'à la prochaine frappe. -->
+        <LinearLayout
+            android:id="@+id/remote_keys"
+            style="?android:attr/buttonBarStyle"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/bar_disconnect" />
+            android:background="@color/bar"
+            android:orientation="horizontal"
+            android:padding="4dp"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/key_escape"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_escape" />
+
+            <Button
+                android:id="@+id/key_tab"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_tab" />
+
+            <ToggleButton
+                android:id="@+id/key_ctrl"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:textOff="@string/keys_ctrl"
+                android:textOn="@string/keys_ctrl" />
+
+            <ToggleButton
+                android:id="@+id/key_alt"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:textOff="@string/keys_alt"
+                android:textOn="@string/keys_alt" />
+
+            <ToggleButton
+                android:id="@+id/key_shift"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:textOff="@string/keys_shift"
+                android:textOn="@string/keys_shift" />
+
+            <Button
+                android:id="@+id/key_delete"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_delete" />
+
+            <Button
+                android:id="@+id/key_backspace"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_backspace" />
+
+            <Button
+                android:id="@+id/key_enter"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_enter" />
+
+            <Button
+                android:id="@+id/key_left"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_left" />
+
+            <Button
+                android:id="@+id/key_up"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_up" />
+
+            <Button
+                android:id="@+id/key_down"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_down" />
+
+            <Button
+                android:id="@+id/key_right"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_right" />
+
+            <Button
+                android:id="@+id/key_hide"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="@string/keys_hide" />
+        </LinearLayout>
     </LinearLayout>
+
+    <!-- Cible du clavier virtuel (SS-046) : invisible, 1 dp, reçoit le focus quand le mode clavier s'active. -->
+    <fr.webinfoconcept.secondscreen.input.KeyboardInputView
+        android:id="@+id/remote_keyboard"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:layout_gravity="bottom|start" />
 
     <!-- État de la connexion (SS-053) et reconnexion (SS-054). Visible tant que la session n'est pas établie. -->
     <LinearLayout
