@@ -64,6 +64,9 @@
     <string name="bar_keyboard">Clavier</string>
     <string name="bar_pointer">Pointeur</string>
     <string name="bar_diagnostic">Diagnostic</string>
+    <string name="bar_fullscreen">Plein écran</string>
+    <string name="bar_fullscreen_exit">Quitter le plein écran</string>
+    <string name="fullscreen_hint">Plein écran : l\'écran distant est affiché en entier. Le premier toucher après quelques secondes d\'inactivité est perdu (Android 4.2). La touche Retour ouvre la barre.</string>
     <string name="bar_disconnect">Déconnexion</string>
 
     <string name="diagnostic_title">Diagnostic matériel</string>

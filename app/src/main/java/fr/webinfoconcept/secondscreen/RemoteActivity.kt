@@ -9,14 +9,17 @@ import android.view.ViewConfiguration
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.Toast
 import android.widget.TextView
 import fr.webinfoconcept.secondscreen.input.PointerActions
 import fr.webinfoconcept.secondscreen.input.PointerMapper
 import fr.webinfoconcept.secondscreen.input.TouchInput
+import fr.webinfoconcept.secondscreen.profile.PreferencesStore
 import fr.webinfoconcept.secondscreen.render.RemoteSurfaceView
 import fr.webinfoconcept.secondscreen.session.ConnectionController
 import fr.webinfoconcept.secondscreen.session.ConnectionFailure
 import fr.webinfoconcept.secondscreen.session.ConnectionState
+import fr.webinfoconcept.secondscreen.settings.DisplaySettings
 import fr.webinfoconcept.secondscreen.ui.FailureMessages
 import fr.webinfoconcept.secondscreen.ui.ImmersiveController
 import fr.webinfoconcept.secondscreen.ui.ViewSystemUiHost
@@ -38,8 +41,11 @@ import fr.webinfoconcept.secondscreen.ui.ViewSystemUiHost
  * Visible tant que la session n'est pas établie : progression pendant la connexion, message compréhensible et boutons
  * Reconnecter / Fermer après une erreur ou une déconnexion. Le dernier écran reçu reste affiché derrière.
  *
+ * ## Plein écran
+ * Explicite et mémorisé ([DisplaySettings]) : voir [toggleFullscreen]. Par défaut la barre système reste visible.
+ *
  * ## Barre de commandes (SS-052)
- * Clavier, Pointeur (désactivés : SS-046/047 et SS-045), Diagnostic, Déconnexion. Elle s'affiche par la touche **Retour**
+ * Clavier, Pointeur (désactivés : SS-046/047 et SS-045), Diagnostic, Plein écran, Déconnexion. Elle s'affiche par la touche **Retour**
  * ou un **tap à trois doigts**. Retour quand elle est visible quitte l'écran : la sortie reste toujours à deux gestes.
  */
 class RemoteActivity : Activity(), ConnectionController.Listener {
@@ -55,13 +61,16 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
     private lateinit var reconnect: Button
+    private lateinit var fullscreenButton: Button
+    private lateinit var settings: DisplaySettings
 
     /** Vrai quand on quitte cet écran pour le diagnostic : la session doit alors survivre à `onStop`. */
     private var keepSessionOnStop = false
 
-    // Le mode immersif n'est actif que fenêtre au premier plan ET session affichée (voir applyImmersive).
+    // Le mode immersif n'est actif que fenêtre au premier plan, session affichée ET plein écran choisi (voir applyImmersive).
     private var windowFocused = false
     private var sessionShown = false
+    private var fullscreen = false
 
     // setOnSystemUiVisibilityChangeListener est déprécié depuis l'API 30 mais reste le seul moyen sur Android 4.2.
     @Suppress("DEPRECATION")
@@ -84,6 +93,12 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
             onToggleBar = { toggleBar() }
         )
         surface.setOnTouchListener(touchInput)
+
+        settings = DisplaySettings(PreferencesStore(this, DisplaySettings.FILE_NAME))
+        fullscreen = settings.fullscreen
+        fullscreenButton = findViewById(R.id.bar_fullscreen)
+        fullscreenButton.setOnClickListener { toggleFullscreen() }
+        updateFullscreenButton()
 
         reconnect.setOnClickListener { askReconnect() }
         findViewById<Button>(R.id.remote_close).setOnClickListener { leave() }
@@ -132,11 +147,33 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
      * qui la fait réapparaître est annulé (`ACTION_CANCEL`) au lieu d'être livré : **tout toucher après quelques
      * secondes d'inactivité est perdu**. C'est supportable devant l'écran distant (ARCHITECTURE.md, « Mode immersif »),
      * pas sur le panneau d'état ni sur la barre de commandes, dont les boutons doivent répondre du premier coup : on y
-     * laisse donc la barre système visible. Conséquence : tant que la barre de commandes est affichée, l'écran distant
-     * est rogné des 48 lignes du bas.
+     * laisse donc la barre système visible. Le plein écran est en outre un **choix explicite** de l'utilisateur
+     * ([toggleFullscreen]) : par défaut la barre système reste visible pendant la session aussi.
      */
     private fun applyImmersive() {
-        if (windowFocused && sessionShown && bar.visibility != View.VISIBLE) immersive.enable() else immersive.disable()
+        val wanted = windowFocused && sessionShown && fullscreen && bar.visibility != View.VISIBLE
+        if (wanted) immersive.enable() else immersive.disable()
+    }
+
+    /**
+     * Bascule le mode **plein écran**, mémorisé pour les prochaines sessions. Hors plein écran (défaut) la barre système
+     * reste visible et tous les touchers comptent, mais l'écran distant est rogné des 48 lignes du bas. En plein écran il
+     * est affiché en entier, mais le premier toucher après quelques secondes d'inactivité est perdu (limite d'Android
+     * 4.2) : on le dit à l'utilisateur au moment où il le choisit.
+     */
+    private fun toggleFullscreen() {
+        fullscreen = !fullscreen
+        settings.fullscreen = fullscreen
+        updateFullscreenButton()
+        if (fullscreen) {
+            bar.visibility = View.GONE // le plein écran ne s'applique que barre de commandes masquée
+            Toast.makeText(this, R.string.fullscreen_hint, Toast.LENGTH_LONG).show()
+        }
+        applyImmersive()
+    }
+
+    private fun updateFullscreenButton() {
+        fullscreenButton.setText(if (fullscreen) R.string.bar_fullscreen_exit else R.string.bar_fullscreen)
     }
 
     override fun onDestroy() {

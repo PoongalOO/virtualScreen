@@ -71,7 +71,7 @@ Aucun scaling sur résolution native.
 Ratio conservé pour serveur non 1280×800.
 
 ### SS-034 — Mode immersif compatible API 17 — P1
-Masquer au maximum le chrome système sans bloquer la sortie de l'application.
+Masquer au maximum le chrome système sans bloquer la sortie de l'application. *(Devenu un **mode plein écran explicite**, bouton de la barre de commandes, faux par défaut : voir ARCHITECTURE.md, « Plein écran ». Sur Android 4.2 le mode immersif perd le premier toucher après quelques secondes d'inactivité.)*
 
 ## Epic E4 — Entrées
 
@@ -79,7 +79,7 @@ Masquer au maximum le chrome système sans bloquer la sortie de l'application.
 Coordonnées exactes et état bouton. *(Fait : `ClientMessages.pointerEvent`, `PointerMapper`, `PointerSender` ; le branchement à la vraie connexion est SS-054.)*
 
 ### SS-041 — Tap = clic gauche — P0
-Down/up fiables sans double événement. **À prendre en compte (mesuré en SS-034) :** sur Android 4.2, quand la barre système est masquée, le premier toucher qui la fait réapparaître n'est pas transmis à l'application ; voir ARCHITECTURE.md, « Mode immersif ».
+Down/up fiables sans double événement. **À prendre en compte (mesuré en SS-034 ; ne concerne plus que le mode plein écran, non imposé) :** sur Android 4.2, quand la barre système est masquée, le premier toucher qui la fait réapparaître n'est pas transmis à l'application ; voir ARCHITECTURE.md, « Mode immersif ».
 
 ### SS-042 — Drag — P0
 Déplacement avec bouton maintenu. *(Fait : `TouchGestureDetector` + `DragListener`, `PointerActions`, `ClientMessages.dragStart`, `PointerSender.sendMove` ; le bouton n'est jamais laissé enfoncé. Le branchement à la vraie connexion est SS-054.)*

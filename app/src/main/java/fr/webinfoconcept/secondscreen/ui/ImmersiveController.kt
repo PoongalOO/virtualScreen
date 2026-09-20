@@ -72,10 +72,15 @@ class ImmersiveController(
         apply()
     }
 
-    /** Arrête le mode : annule tout remasquage programmé. Idempotent. */
+    /**
+     * Arrête le mode : annule tout remasquage programmé **et rend la barre système** si nos drapeaux sont encore posés.
+     * Sans cela, quitter le plein écran laissait la barre masquée jusqu'au prochain toucher, et ce toucher (celui qui la
+     * fait réapparaître) était annulé par Android 4.2 : le premier appui sur un bouton était perdu. Idempotent.
+     */
     fun disable() {
         enabled = false
         cancelRehide()
+        if (host.systemUiVisibility != View.SYSTEM_UI_FLAG_VISIBLE) host.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
     }
 
     /**

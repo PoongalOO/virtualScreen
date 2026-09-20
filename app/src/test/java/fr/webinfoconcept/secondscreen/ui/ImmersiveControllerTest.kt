@@ -16,8 +16,9 @@ import org.junit.Test
 class ImmersiveControllerTest {
 
     private class FakeHost : SystemUiHost {
-        override var systemUiVisibility = 0
         var writes = 0
+        override var systemUiVisibility = 0
+            set(value) { field = value; writes++ }
         val scheduled = mutableListOf<Pair<Runnable, Long>>() // actions en attente et leur délai
         var removed = 0
 
@@ -25,7 +26,7 @@ class ImmersiveControllerTest {
         override fun removeCallbacks(action: Runnable) { scheduled.removeAll { it.first === action }; removed++ }
 
         /** Le système écrit lui-même la visibilité (la barre réapparaît après un toucher). */
-        fun systemClearsFlags() { systemUiVisibility = 0 }
+        fun systemClearsFlags() { systemUiVisibility = 0; writes-- } // pas une écriture du contrôleur
         fun runScheduled() { scheduled.toList().forEach { scheduled.remove(it); it.first.run() } }
     }
 
@@ -206,5 +207,45 @@ class ImmersiveControllerTest {
         repeat(5) { host.systemClearsFlags(); c.onSystemUiVisibilityChange(0); host.runScheduled() }
 
         assertTrue(host.scheduled.all { it.second > 0 })
+    }
+
+    @Test
+    fun `disable gives the system bars back, so leaving fullscreen does not leave the first touch to be cancelled`() {
+        val host = FakeHost()
+        val c = controller(host)
+        c.enable()
+        assertEquals(hide, host.systemUiVisibility)
+
+        c.disable()
+
+        assertEquals("barres visibles", View.SYSTEM_UI_FLAG_VISIBLE, host.systemUiVisibility)
+        assertFalse(c.isEnabled)
+    }
+
+    @Test
+    fun `disable does not write when the bars are already visible`() {
+        val host = FakeHost()
+        val c = controller(host)
+
+        c.disable()
+        c.disable()
+
+        assertEquals("aucune écriture inutile", 0, host.writes)
+    }
+
+    @Test
+    fun `a disabled controller does not re-hide after it gave the bars back`() {
+        val host = FakeHost()
+        val c = controller(host)
+        c.enable()
+        host.systemClearsFlags()
+        c.onSystemUiVisibilityChange(host.systemUiVisibility) // la barre est réapparue : remasquage programmé
+        assertTrue(c.isRehidePending)
+
+        c.disable()
+        host.runScheduled()
+
+        assertEquals(View.SYSTEM_UI_FLAG_VISIBLE, host.systemUiVisibility)
+        assertFalse(c.isRehidePending)
     }
 }

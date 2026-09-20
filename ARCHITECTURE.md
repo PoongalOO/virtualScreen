@@ -88,7 +88,7 @@ L'image est dessinée en (0, 0), **sans mise à l'échelle** : filtrage désacti
 - **le toucher qui fait réapparaître la barre n'est pas transmis à l'application.** Comme la barre est remasquée après 3 s, **le premier toucher après chaque remasquage est perdu** ;
 - le remasquage est volontairement **différé** (3 s) pour laisser le temps d'appuyer sur Retour ou Accueil : ne jamais le rendre immédiat, l'utilisateur ne pourrait plus quitter.
 
-Conséquence pour SS-041 (tap = clic) et SS-052 (barre de commandes) : la décision de garder ou non le remasquage automatique reste à prendre. Pistes : ne remasquer qu'après une période d'inactivité tactile plus longue, ne masquer que sur action explicite de l'utilisateur, ou accepter la perte du premier toucher. Le drapeau `IMMERSIVE_STICKY` (API 19), qui règlerait cela sur un Android plus récent, n'est **pas** implémenté : je n'ai aucun appareil pour le tester.
+**Décision (après les essais de SS-054) : le mode immersif n'est plus imposé.** Avec une vraie session, la perte du premier toucher après quelques secondes d'inactivité gênait toute l'utilisation, y compris les boutons Reconnecter et Fermer. Il est devenu un **mode plein écran explicite** (voir « Plein écran ») : par défaut la barre système reste visible et tous les touchers comptent. Le drapeau `IMMERSIVE_STICKY` (API 19) n'est toujours pas implémenté (aucun appareil pour le tester).
 
 ### Vérifié sur la GT-P5110
 
@@ -138,7 +138,7 @@ thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par a
 
 Les entrées partent vers la session courante du `ConnectionController` (`controller.input`, un `PointerSender` par session) : voir « Connexion et session ».
 
-**Conséquence du mode immersif** (voir plus haut) : sur Android 4.2, le premier toucher après chaque remasquage de la barre est perdu, et la barre réapparue intercepte les touchers des 48 lignes du bas pendant 3 s. Ce n'est pas un défaut de l'envoi des entrées, mais l'utilisateur le verra comme un clic manquant : la décision sur le remasquage automatique reste ouverte.
+**Conséquence du plein écran** (voir « Plein écran ») : en plein écran seulement, sur Android 4.2, le premier toucher après quelques secondes d'inactivité est perdu ; hors plein écran (défaut) aucun toucher n'est perdu.
 
 ### Vérifié
 
@@ -204,9 +204,20 @@ Le mot de passe n'existe que dans un `CharArray`. `ConnectActivity` le copie, **
 `ProfileStore` (nom, hôte, port) sur `SharedPreferences` (`PreferencesStore`), **sans aucun champ de mot de passe** (un test vérifie que ni les classes ni les clés écrites n'ont de place pour un secret). Les données lues sont traitées comme non fiables : un profil incomplet ou invalide est ignoré. Un profil n'est enregistré **qu'une fois la connexion établie** (une faute de frappe qui échoue n'écrase pas un profil qui marchait) ; même nom = même profil ; 50 profils au plus. Le dernier profil utilisé est proposé en tête de liste (« Reconnecter : ... », F08). `android:allowBackup="false"` : rien n'est sauvegardé dans un cloud.
 
 ### Barre de commandes (SS-052)
-Clavier, Pointeur, Diagnostic, Déconnexion. Elle s'affiche par la touche **Retour** (toujours fiable) ou un **tap à trois doigts** (`ThreeFingerTap`). Quand elle est visible, Retour quitte l'écran : la sortie reste à deux gestes. **Clavier et Pointeur sont présents mais désactivés** : ils dépendent de SS-046/SS-047 et SS-045, non faits.
+Clavier, Pointeur, Diagnostic, **Plein écran**, Déconnexion. Elle s'affiche par la touche **Retour** (toujours fiable) ou un **tap à trois doigts** (`ThreeFingerTap`). Quand elle est visible, Retour quitte l'écran : la sortie reste à deux gestes. **Clavier et Pointeur sont présents mais désactivés** : ils dépendent de SS-046/SS-047 et SS-045, non faits.
 
-**Mode immersif et fiabilité des touchers** : sur Android 4.2, tout toucher qui fait réapparaître la barre système est annulé (`ACTION_CANCEL`), donc **tout toucher après quelques secondes d'inactivité est perdu** devant l'écran distant (voir « Mode immersif »). Sur le panneau d'état et avec la barre de commandes affichée, où chaque bouton doit répondre du premier coup, le mode immersif est **désactivé** (la barre système reste visible, l'écran distant est alors rogné des 48 lignes du bas). Découvert pendant les essais sur la tablette : les boutons Reconnecter et Fermer ne répondaient pas.
+**Hors plein écran** (défaut), Retour ouvre la barre et le tap à trois doigts la ferme **du premier coup**, y compris après une longue inactivité (vérifié). Retour quand la barre est visible quitte l'écran.
+
+### Plein écran
+Bouton **Plein écran** / **Quitter le plein écran** de la barre de commandes, mémorisé d'une session à l'autre (`DisplaySettings`, `SharedPreferences`, faux par défaut). Il remplace le mode immersif imposé :
+
+| | Hors plein écran (défaut) | Plein écran |
+|---|---|---|
+| Barre système | visible | masquée |
+| Fenêtre de l'écran distant (mesurée) | 1280×752 : **les 48 lignes du bas sont rognées** (la barre des tâches d'un PC Windows) | **1280×800**, tout l'écran distant |
+| Touchers | tous délivrés | **le premier toucher après quelques secondes d'inactivité est perdu** (limite d'Android 4.2) |
+
+En plein écran le mode ne s'applique que **barre de commandes masquée** et **session établie** : sur le panneau d'état (Reconnecter, Fermer) et avec la barre de commandes affichée, où chaque bouton doit répondre du premier coup, la barre système est rendue. Un message (`Toast`) rappelle la limite au moment où l'utilisateur choisit le plein écran. Sortir du plein écran ne laisse pas la barre masquée : `ImmersiveController.disable()` **rend la barre système** (un défaut de la première version : il ne faisait qu'arrêter le remasquage, la barre restait cachée et le premier appui sur un bouton était annulé ; corrigé et couvert par des tests).
 
 ### Vérifié
 | Vérification | Résultat |
@@ -221,6 +232,11 @@ Clavier, Pointeur, Diagnostic, Déconnexion. Elle s'affiche par la touche **Reto
 | Idem, Reconnecter avec le serveur relancé | boîte de mot de passe, nouvelle connexion acceptée, écran de nouveau à jour |
 | Idem, Retour -> barre ; bouton Diagnostic ; Retour ; Déconnexion | barre affichée ; diagnostic ouvert **sans fermer la session** (aucune fermeture côté serveur) ; retour à la session ; Déconnexion ferme la connexion (vue côté serveur) et revient à la liste |
 | Idem, tap à trois doigts (deux doigts en plus via `sendevent`) | la barre s'affiche / se masque |
+| Plein écran, GT-P5110 : session par défaut | barre système visible, fenêtre **1280×752**, la fenêtre placée aux lignes 752-800 du bureau distant n'est pas visible |
+| Idem, bouton Plein écran de la barre | fenêtre **1280×800**, la fenêtre des lignes 752-800 apparaît, message d'information affiché |
+| Idem, nouvelle session (autre activité) | s'ouvre directement en plein écran : le choix est mémorisé |
+| Idem, Retour puis « Quitter le plein écran » du premier toucher | barre système rendue (752), bouton devenu « Plein écran » : plus de toucher perdu |
+| Idem, tap à trois doigts après 5 s d'inactivité, hors plein écran | la barre se masque du premier coup |
 | Profil enregistré, relancé après réinstallation | présent, proposé en « Reconnecter : ... » |
 | Idem, **écran distant statique** pendant ~60 s (le terminal qui affichait l'heure est fermé) | toujours connecté, aucune fermeture côté serveur : le signe de vie est bien répondu par TigerVNC |
 | Idem, serveur **gelé** (`docker pause` : connexion TCP ouverte, plus aucune réponse) | encore connecté à 8 s ; à ~22 s : « Plus aucune nouvelle du PC : réseau coupé ou PC en veille. » |
