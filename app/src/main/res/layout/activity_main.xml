@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SS-001 : écran placeholder minimal, valide uniquement le smoke test de
-     compilation/installation. Les écrans fonctionnels arrivent avec SS-050
-     (connexion) et SS-003 (diagnostic). -->
+<!-- SS-050 : écran d'accueil = liste des connexions enregistrées (SS-051) et bouton Ajouter. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background"
-    android:gravity="center"
     android:orientation="vertical"
     android:padding="24dp">
 
@@ -20,46 +17,66 @@
         android:textStyle="bold" />
 
     <TextView
-        android:id="@+id/text_subtitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:gravity="center"
-        android:text="@string/main_status_title"
-        android:textColor="@color/text_secondary"
-        android:textSize="16sp" />
-
-    <TextView
         android:id="@+id/text_detail"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:gravity="center"
         android:textColor="@color/text_secondary"
         android:textSize="14sp" />
 
-    <!-- Accès provisoire à l'écran de diagnostic (SS-003) : ce bouton sera
-         déplacé dans la barre de commandes distante par SS-052. -->
+    <!-- Reconnexion rapide (F08) : visible seulement s'il existe un dernier profil. -->
     <Button
-        android:id="@+id/btn_diagnostic"
-        android:layout_width="wrap_content"
+        android:id="@+id/btn_last"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/main_open_diagnostic" />
+        android:layout_marginTop="16dp"
+        android:visibility="gone" />
 
-    <!-- Accès provisoire à l'écran de rendu (SS-030) : remplacé par l'écran de connexion (SS-050). -->
-    <Button
-        android:id="@+id/btn_render_test"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/main_open_render_test" />
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:layout_weight="1">
 
-    <Button
-        android:id="@+id/btn_render_animated"
-        android:layout_width="wrap_content"
+        <ListView
+            android:id="@+id/list_profiles"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <TextView
+            android:id="@+id/text_empty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:padding="16dp"
+            android:text="@string/main_empty"
+            android:textColor="@color/text_secondary"
+            android:textSize="16sp" />
+    </FrameLayout>
+
+    <LinearLayout
+        style="?android:attr/buttonBarStyle"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/main_open_render_animated" />
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_add"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/main_add" />
+
+        <Button
+            android:id="@+id/btn_diagnostic"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/main_open_diagnostic" />
+    </LinearLayout>
 
 </LinearLayout>

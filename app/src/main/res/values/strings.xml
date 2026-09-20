@@ -1,12 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SecondScreen</string>
-    <string name="main_status_title">Projet initialisé (SS-001)</string>
     <string name="main_status_detail">Android %1$s (API %2$d)</string>
     <string name="main_open_diagnostic">Diagnostic</string>
-    <string name="main_open_render_test">Test de rendu</string>
-    <string name="main_open_render_animated">Test de rendu animé</string>
+    <string name="main_add">Ajouter</string>
+    <string name="main_last_connection">Reconnecter : %1$s</string>
+    <string name="main_empty">Aucune connexion enregistrée.\nAppuyez sur « Ajouter » pour renseigner l\'adresse de votre PC.</string>
+    <string name="main_delete_title">Supprimer cette connexion ?</string>
+    <string name="main_delete_message">« %1$s » sera retirée de la liste. Le PC n\'est pas modifié.</string>
+    <string name="main_delete_confirm">Supprimer</string>
+    <string name="cancel">Annuler</string>
+
+    <string name="connect_title_new">Nouvelle connexion</string>
+    <string name="connect_title_edit">Connexion : %1$s</string>
+    <string name="connect_name_label">Nom (ex. : PC du bureau)</string>
+    <string name="connect_host_label">Adresse du PC (ex. : 192.168.1.10 ou nom-du-pc)</string>
+    <string name="connect_port_label">Port (5900 par défaut)</string>
+    <string name="connect_password_label">Mot de passe VNC (vide si le serveur n\'en demande pas)</string>
+    <string name="connect_password_note">Le mot de passe n\'est jamais enregistré : il faut le saisir à chaque connexion.</string>
+    <string name="connect_save_profile">Enregistrer cette connexion</string>
+    <string name="connect_button">Connexion</string>
+    <string name="connect_cancel">Annuler la connexion</string>
+    <string name="connect_busy">Une connexion est déjà en cours.</string>
+    <string name="connect_too_many">Trop de connexions enregistrées : supprimez-en une ou décochez « Enregistrer ».</string>
+
+    <string name="error_name_too_long">40 caractères au plus</string>
+    <string name="error_name_invalid">Caractères non autorisés</string>
+    <string name="error_host_empty">Saisissez l\'adresse du PC</string>
+    <string name="error_host_invalid">Adresse invalide : lettres, chiffres, points et tirets seulement</string>
+    <string name="error_port_invalid">Port invalide : nombre de 1 à 65535</string>
+
+    <string name="state_connecting">Connexion à %1$s…</string>
+    <string name="state_reconnecting">Reconnexion à %1$s…</string>
+    <string name="state_negotiating">Négociation avec le serveur…</string>
+    <string name="state_disconnected">Déconnecté</string>
+    <string name="state_no_connection">Aucune connexion active.</string>
+
+    <string name="failure_unknown_host">Adresse introuvable. Vérifiez le nom ou l\'adresse IP du PC.</string>
+    <string name="failure_connect_timeout">Le PC ne répond pas. Vérifiez qu\'il est allumé, sur le même réseau Wi-Fi, et que son pare-feu autorise le port.</string>
+    <string name="failure_connection_refused">Connexion refusée : le PC est joignable mais aucun serveur VNC n\'écoute sur ce port. Vérifiez que le serveur VNC est démarré et le numéro de port.</string>
+    <string name="failure_network_unreachable">Réseau injoignable. Vérifiez que la tablette est connectée au Wi-Fi du PC.</string>
+    <string name="failure_not_a_vnc_server">Ce port ne répond pas comme un serveur VNC. Vérifiez le numéro de port.</string>
+    <string name="failure_unsupported_version">Version du protocole VNC du serveur trop ancienne.</string>
+    <string name="failure_server_rejected">Le serveur a refusé la connexion.</string>
+    <string name="failure_server_rejected_reason">Le serveur a refusé la connexion : %1$s</string>
+    <string name="failure_password_required">Ce serveur demande un mot de passe. Saisissez-le puis réessayez.</string>
+    <string name="failure_password_invalid">Le mot de passe contient des caractères que VNC ne peut pas envoyer (lettres accentuées et symboles courants seulement).</string>
+    <string name="failure_no_compatible_security">Le serveur exige un mode d\'authentification non pris en charge. Seuls « aucun » et « mot de passe VNC » le sont : réglez le serveur en VNC classique.</string>
+    <string name="failure_auth_failed">Mot de passe refusé par le serveur.</string>
+    <string name="failure_handshake_timeout">Le serveur n\'a pas répondu pendant la négociation.</string>
+    <string name="failure_unsupported_server_size">L\'écran du PC est trop grand pour la tablette (1920 × 1200 au plus). Baissez la résolution du serveur.</string>
+    <string name="failure_connection_lost">Connexion interrompue par le serveur ou le réseau.</string>
+    <string name="failure_network_lost">Plus aucune nouvelle du PC : réseau coupé ou PC en veille.</string>
+    <string name="failure_protocol_error">Le serveur a envoyé des données inattendues.</string>
+    <string name="failure_local_error">Erreur interne de la tablette.</string>
+
     <string name="remote_title">Écran distant</string>
+    <string name="remote_reconnect">Reconnecter</string>
+    <string name="remote_close">Fermer</string>
+    <string name="remote_password_title">Mot de passe VNC</string>
+    <string name="remote_password_message">Le mot de passe n\'est pas conservé : saisissez-le pour vous reconnecter.</string>
+    <string name="remote_password_ok">Reconnecter</string>
+    <string name="bar_keyboard">Clavier</string>
+    <string name="bar_pointer">Pointeur</string>
+    <string name="bar_diagnostic">Diagnostic</string>
+    <string name="bar_disconnect">Déconnexion</string>
 
     <string name="diagnostic_title">Diagnostic matériel</string>
     <string name="diagnostic_android_version_label">Version Android</string>

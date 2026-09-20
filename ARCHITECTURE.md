@@ -33,7 +33,7 @@ UI
 ## Threads
 
 - **UI thread** : Activity, SurfaceView, événements utilisateur.
-- **I/O worker** : socket, handshake, lecture des messages RFB.
+- **Session** (`secondscreen-session`, un par tentative de connexion) : socket, handshake, lecture des messages RFB et rendu (`ConnectionController`). Deux threads démons l'accompagnent : `secondscreen-keepalive` (battement) et `secondscreen-input` (envoi des entrées), tous arrêtés avec la session.
 - **Envoi des entrées** (`secondscreen-input`) : écrit les `PointerEvent` ; le thread UI ne fait que les poser dans une file bornée.
 - **Rendu** : privilégier une stratégie simple SurfaceView ; mesurer avant d'ajouter un thread supplémentaire.
 
@@ -136,7 +136,7 @@ thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par a
 - **Un clic = un seul message de 18 octets** (`ClientMessages.leftClick` : survol sans bouton, appui, relâchement, au même pixel), écrit en un seul `write` : l'appui n'est jamais envoyé sans son relâchement (bouton coincé côté serveur), ni entrelacé avec le battement Wi-Fi ou un autre message.
 - **`PointerSender`** : aucun accès réseau sur le thread UI. La file est bornée (64) : si la liaison se bloque, `send` refuse des messages **entiers** sans jamais attendre (mémoire bornée) ; une erreur d'écriture arrête l'envoyeur et est signalée une fois ; à l'arrêt, les messages en attente sont abandonnés (un clic tardif serait pire qu'un clic perdu). **Deux priorités** : les messages d'état (appui, relâchement, clic, via `send`) ne doivent pas se perdre, les déplacements (`sendMove`) sont remplaçables ; ces derniers ne sont acceptés que tant qu'il reste de la place pour les premiers (un quart de la file est réservé). Sur une liaison lente on perd des déplacements, jamais le relâchement.
 
-**Provisoire** : `RemoteActivity` n'est pas encore reliée à un serveur (SS-054). Elle emprunte le chemin réel jusqu'à la file d'envoi, mais l'écriture finale ne fait que compter les messages ; SS-054 y branchera `PointerSender.forSocket`.
+Les entrées partent vers la session courante du `ConnectionController` (`controller.input`, un `PointerSender` par session) : voir « Connexion et session ».
 
 **Conséquence du mode immersif** (voir plus haut) : sur Android 4.2, le premier toucher après chaque remasquage de la barre est perdu, et la barre réapparue intercepte les touchers des 48 lignes du bas pendant 3 s. Ce n'est pas un défaut de l'envoi des entrées, mais l'utilisateur le verra comme un clic manquant : la décision sur le remasquage automatique reste ouverte.
 
@@ -174,11 +174,65 @@ thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par a
 
 **Méthode des toucher bruts** : `adb shell input` d'Android 4.2 ne sait ni tenir un appui ni poser deux doigts, mais `sendevent` sur `/dev/input/event0` (protocole multi-touch B, dalle 1280×800) le permet. **La dalle est retournée de 180° par rapport à l'affichage** (toucher brut (x, y) = affichage (1279−x, 799−y)) ; les coordonnées ont été converties. Le `sleep` de la tablette n'accepte que des secondes entières.
 
-**Non vérifié sur l'appareil** : le confort réel du défilement (pas de 40 px, vitesse, inertie : il n'y en a pas, un défilement s'arrête avec les doigts), qu'on ne peut juger qu'avec une vraie application distante ; la perte de focus en plein glissement, appui long ou défilement (l'appel à `cancelGesture` n'a été exercé que par les tests unitaires). Le glissement de la tablette n'a été fait qu'avec `input swipe` (300 ms, ~10 déplacements) ou quelques déplacements bruts : la cadence d'un vrai doigt (60 à 120 déplacements par seconde) n'a pas été mesurée ; côté file d'envoi, la charge est testée (2 000 déplacements sur une liaison bloquée) mais pas avec un serveur réel qui ralentit. Rien n'a non plus été mesuré côté serveur depuis la tablette : la chaîne serveur a été vérifiée depuis la JVM avec le même code, la chaîne tactile depuis la tablette sans serveur.
+**Non vérifié sur l'appareil** : le confort réel du défilement (pas de 40 px, vitesse, inertie : il n'y en a pas, un défilement s'arrête avec les doigts), qu'on ne peut juger qu'avec une vraie application distante ; la perte de focus en plein glissement, appui long ou défilement (l'appel à `cancelGesture` n'a été exercé que par les tests unitaires). Le glissement de la tablette n'a été fait qu'avec `input swipe` (300 ms, ~10 déplacements) ou quelques déplacements bruts : la cadence d'un vrai doigt (60 à 120 déplacements par seconde) n'a pas été mesurée ; côté file d'envoi, la charge est testée (2 000 déplacements sur une liaison bloquée) mais pas avec un serveur réel qui ralentit. Depuis SS-054 la chaîne complète (tablette -> serveur) est vérifiée sur un tap (voir « Connexion et session »).
+
+## Connexion et session (SS-050 à SS-054)
+
+```text
+MainActivity (liste des profils)
+   └─ ConnectActivity (formulaire, progression, erreurs)  ──connect(params, mot de passe)──┐
+                                                                                            ▼
+                                     SessionManager.controller : ConnectionController (thread secondscreen-session)
+                                                                                            │ CONNECTED
+   RemoteActivity (surface, entrées, barre, panneau d'état)  ◄── état, framebuffer ─────────┘
+```
+
+- **Un seul propriétaire de la socket** : `ConnectionController` (`session/`). Il tourne sur un thread dédié, publie ses changements d'état à des écouteurs (appelés sur un thread quelconque : l'interface se remet sur le thread UI) et n'expose jamais la socket. `connect`, `reconnect` et `disconnect` ne bloquent pas ; `disconnect` ferme la socket pour débloquer le thread.
+- **États** (`ConnectionState`) : `DISCONNECTED`, `CONNECTING`, `NEGOTIATING`, `CONNECTED`, `RECONNECTING`, `ERROR`. Les transitions autorisées sont **une table unique** (`canTransitionTo`), vérifiée par un test qui la compare à la liste documentée ; une transition illégale est ignorée, pas appliquée.
+- **Générations** : chaque tentative a un numéro. Un ancien thread encore en train de se terminer ne peut plus rien publier (état, rendu, framebuffer) dès qu'un `disconnect` ou une nouvelle tentative a eu lieu ; l'établissement de la session (état CONNECTED + session + envoyeur d'entrées) est atomique par rapport à `disconnect`. L'envoyeur d'entrées est **propre à chaque session** : un ancien thread ne peut pas arrêter celui de la suivante.
+- **Déroulement** : TCP -> version -> sécurité (+ mot de passe) -> `ServerInit` -> `SetPixelFormat`, `SetEncodings`, `FramebufferUpdateRequest` complète -> boucle de lecture ; après chaque `FramebufferUpdate` : rendu (une fois par mise à jour, SS-031) puis nouvelle requête incrémentale de l'écran entier (allouée une fois par session).
+- **Signe de vie** : le battement Wi-Fi (SS-064, une requête incrémentale d'un pixel toutes les 100 ms) ne prouve pas que le serveur vit, il ne provoque aucune réponse. Toutes les 5 s le même thread envoie donc une requête **non incrémentale** d'un pixel, à laquelle le serveur répond toujours. Aucune nouvelle pendant 15 s -> `NETWORK_LOST` (« réseau coupé ou PC en veille »), sans attendre les minutes que TCP met à s'en apercevoir. Un écran distant statique ne déclenche donc pas de fausse coupure.
+- **Session = tant que l'écran distant est visible** : pas de service Android. Accueil, autre application, écran éteint : `RemoteActivity.onStop` ferme la session, donc aucun trafic ni thread en arrière-plan (exception : l'ouverture du diagnostic depuis la barre garde la session). Au retour, le panneau d'état propose **Reconnecter**. Le contrôleur vit autant que le processus (`SessionManager`) : une rotation ou la navigation entre écrans ne coupe pas la session (`configChanges` sur l'écran distant).
+
+### Erreurs compréhensibles (SS-053)
+Toute exception du transport ou du protocole est classée par `ConnectionFailure.classify` en une **cause** (`FailureKind`, 17 catégories) et une **phase** (connexion, négociation, session) : le même symptôme n'a pas le même sens partout (un délai de lecture est « le serveur ne répond pas à la négociation » ou « réseau coupé » selon la phase ; « ce serveur veut un mot de passe » et « mot de passe refusé » se distinguent selon qu'un mot de passe a été saisi). L'interface transforme chaque cause en une phrase qui dit **quoi faire** (`FailureMessages`, `when` exhaustif : une cause sans message ne compile pas). Rien d'autre que la raison assainie du serveur n'est affiché ; ni `toString()` ni journal ne contiennent de secret ni de texte serveur.
+
+### Secrets
+Le mot de passe n'existe que dans un `CharArray`. `ConnectActivity` le copie, **vide le champ** (`saveEnabled=false` : pas d'état d'instance), et le confie à `connect`, qui l'**efface dans tous les cas** (succès, échec, abandon, connexion refusée d'emblée ; un test par chemin). Il n'est ni dans un `Intent`, ni dans un profil, ni journalisé, ni **conservé pour la reconnexion** : `reconnect` le redemande (boîte de dialogue) si le serveur en exigeait un (`reconnectNeedsPassword`). Limite : c'est du « meilleur effort » (la JVM et l'`EditText` peuvent garder des copies non effaçables), voir SECURITY.md.
+
+### Profils (SS-051)
+`ProfileStore` (nom, hôte, port) sur `SharedPreferences` (`PreferencesStore`), **sans aucun champ de mot de passe** (un test vérifie que ni les classes ni les clés écrites n'ont de place pour un secret). Les données lues sont traitées comme non fiables : un profil incomplet ou invalide est ignoré. Un profil n'est enregistré **qu'une fois la connexion établie** (une faute de frappe qui échoue n'écrase pas un profil qui marchait) ; même nom = même profil ; 50 profils au plus. Le dernier profil utilisé est proposé en tête de liste (« Reconnecter : ... », F08). `android:allowBackup="false"` : rien n'est sauvegardé dans un cloud.
+
+### Barre de commandes (SS-052)
+Clavier, Pointeur, Diagnostic, Déconnexion. Elle s'affiche par la touche **Retour** (toujours fiable) ou un **tap à trois doigts** (`ThreeFingerTap`). Quand elle est visible, Retour quitte l'écran : la sortie reste à deux gestes. **Clavier et Pointeur sont présents mais désactivés** : ils dépendent de SS-046/SS-047 et SS-045, non faits.
+
+**Mode immersif et fiabilité des touchers** : sur Android 4.2, tout toucher qui fait réapparaître la barre système est annulé (`ACTION_CANCEL`), donc **tout toucher après quelques secondes d'inactivité est perdu** devant l'écran distant (voir « Mode immersif »). Sur le panneau d'état et avec la barre de commandes affichée, où chaque bouton doit répondre du premier coup, le mode immersif est **désactivé** (la barre système reste visible, l'écran distant est alors rogné des 48 lignes du bas). Découvert pendant les essais sur la tablette : les boutons Reconnecter et Fermer ne répondaient pas.
+
+### Vérifié
+| Vérification | Résultat |
+|---|---|
+| Faux serveur RFB sur loopback (JVM), 35 scénarios | états dans l'ordre et légaux ; handshake, `SetPixelFormat`/`SetEncodings`/requête complète envoyés dans l'ordre exact ; mises à jour décodées et rendu notifié une fois par mise à jour ; VNC Auth ; mauvais mot de passe, mot de passe requis/invalide, port fermé, pas du VNC, version ancienne, refus, serveur muet, taille absurde, message inconnu, serveur qui ferme, serveur qui se tait ; signe de vie ; entrées ; arrêt sans thread restant ; reconnexion ; tentatives qui se chevauchent |
+| Mutations (contrôleur) : signe de vie rendu incrémental / effacement du mot de passe supprimé / numéro de génération ignoré / nouvelle requête supprimée | chacune fait échouer au moins un test (l'effacement n'était pas couvert : deux tests ajoutés) |
+| Vrai TigerVNC (`Xtigervnc` 1280×800, mot de passe VNC) depuis la GT-P5110 par Wi-Fi, parcours complet : Ajouter -> saisie -> Connexion | connexion établie, bureau affiché (horloge d'un terminal qui avance) |
+| Idem, mauvais mot de passe | « Mot de passe refusé par le serveur. », champ mot de passe vidé, formulaire conservé |
+| Idem, port filtré par le pare-feu / port fermé sur la tablette / adresse `http://pc` | « Le PC ne répond pas… pare-feu » / « Connexion refusée… » / erreur sur le champ Adresse |
+| Idem, tap sur l'écran distant | `xev` voit `ButtonPress` + `ButtonRelease` bouton 1 en (200,300) exactement |
+| Idem, arrêt du serveur en pleine session | « Connexion interrompue par le serveur ou le réseau. », dernière image conservée, boutons Reconnecter / Fermer |
+| Idem, Reconnecter avec le serveur relancé | boîte de mot de passe, nouvelle connexion acceptée, écran de nouveau à jour |
+| Idem, Retour -> barre ; bouton Diagnostic ; Retour ; Déconnexion | barre affichée ; diagnostic ouvert **sans fermer la session** (aucune fermeture côté serveur) ; retour à la session ; Déconnexion ferme la connexion (vue côté serveur) et revient à la liste |
+| Idem, tap à trois doigts (deux doigts en plus via `sendevent`) | la barre s'affiche / se masque |
+| Profil enregistré, relancé après réinstallation | présent, proposé en « Reconnecter : ... » |
+| Idem, **écran distant statique** pendant ~60 s (le terminal qui affichait l'heure est fermé) | toujours connecté, aucune fermeture côté serveur : le signe de vie est bien répondu par TigerVNC |
+| Idem, serveur **gelé** (`docker pause` : connexion TCP ouverte, plus aucune réponse) | encore connecté à 8 s ; à ~22 s : « Plus aucune nouvelle du PC : réseau coupé ou PC en veille. » |
+| Idem, **Accueil** pendant une session, puis retour dans l'application | le serveur voit la connexion fermée (4 acceptées, 4 fermées) ; au retour : « Déconnecté » avec Reconnecter |
+
+**Non vérifié** : un PC Windows (seul TigerVNC sous Linux, dans un conteneur, a été essayé) ; une vraie coupure Wi-Fi de la tablette (elle a été simulée en arrêtant ou en gelant le serveur) ; le comportement à long terme (SS-061) ; le retournement physique de la tablette avec `configChanges` ; le tap à trois doigts sur une tablette laissée inactive (voir la limite du mode immersif : le premier toucher après quelques secondes est annulé par le système, donc le geste ne marche qu'une fois l'écran touché depuis moins de 3 s ; la touche Retour est la voie fiable).
+
+**Remarques de test** : la tablette d'essai était posée à l'envers (rotation 180°, capture d'écran retournée) ; `uiautomator` d'Android 4.2 ne montre pas les fenêtres de dialogue (la boîte de mot de passe existait bien, la capture d'écran le prouve) ; le serveur de test était joignable par Wi-Fi sur le réseau local seulement, le temps des essais.
 
 ## Réseau (SS-064)
 
-`net/KeepAlive` envoie un message toutes les 100 ms sur un thread démon dédié pour que la liaison Wi-Fi ne devienne jamais silencieuse : sinon la radio de la tablette s'endort et la latence d'un paquet entrant atteint ~1,9 s (mesures dans PERFORMANCE.md). Le battement est un `FramebufferUpdateRequest` incrémental d'un pixel. Il s'arrête de lui-même si l'envoi échoue. Le contrôleur de connexion le démarrera avec la session et l'arrêtera à sa fin.
+`net/KeepAlive` envoie un message toutes les 100 ms sur un thread démon dédié pour que la liaison Wi-Fi ne devienne jamais silencieuse : sinon la radio de la tablette s'endort et la latence d'un paquet entrant atteint ~1,9 s (mesures dans PERFORMANCE.md). Le battement est un `FramebufferUpdateRequest` incrémental d'un pixel. Il s'arrête de lui-même si l'envoi échoue. Le `ConnectionController` (SS-054) le démarre avec chaque session et l'arrête à sa fin ; il y ajoute le signe de vie (voir « Connexion et session »).
 
 ## Dépendances
 
@@ -191,7 +245,7 @@ Politique : zéro dépendance réseau/protocole pour le MVP. Utiliser les API st
 
 ## Persistance
 
-`SharedPreferences` suffit pour les profils simples. Ne pas stocker le mot de passe en clair par défaut. Compte tenu de l'ancienneté d'Android 4.2.2, documenter clairement les limites de stockage sécurisé disponibles sur cette plateforme.
+(Réalisé en SS-051, voir « Connexion et session ».) `SharedPreferences` suffit pour les profils simples. Ne pas stocker le mot de passe en clair par défaut. Compte tenu de l'ancienneté d'Android 4.2.2, documenter clairement les limites de stockage sécurisé disponibles sur cette plateforme.
 
 ## Gestion d'état
 
@@ -206,4 +260,4 @@ RECONNECTING
 ERROR
 ```
 
-Les transitions doivent être centralisées afin d'éviter que l'Activity manipule directement la socket.
+Les transitions doivent être centralisées afin d'éviter que l'Activity manipule directement la socket. (Réalisé : `ConnectionState` et `ConnectionController`, voir « Connexion et session ».)

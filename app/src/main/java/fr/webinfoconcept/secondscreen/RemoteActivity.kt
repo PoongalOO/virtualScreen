@@ -1,64 +1,97 @@
 package fr.webinfoconcept.secondscreen
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
 import android.os.Bundle
-import android.util.Log
+import android.view.View
 import android.view.ViewConfiguration
+import android.widget.Button
+import android.widget.EditText
+import android.widget.ProgressBar
+import android.widget.TextView
 import fr.webinfoconcept.secondscreen.input.PointerActions
 import fr.webinfoconcept.secondscreen.input.PointerMapper
-import fr.webinfoconcept.secondscreen.input.PointerSender
 import fr.webinfoconcept.secondscreen.input.TouchInput
 import fr.webinfoconcept.secondscreen.render.RemoteSurfaceView
-import fr.webinfoconcept.secondscreen.render.RenderTestDriver
-import fr.webinfoconcept.secondscreen.render.RenderTestPattern
+import fr.webinfoconcept.secondscreen.session.ConnectionController
+import fr.webinfoconcept.secondscreen.session.ConnectionFailure
+import fr.webinfoconcept.secondscreen.session.ConnectionState
+import fr.webinfoconcept.secondscreen.ui.FailureMessages
 import fr.webinfoconcept.secondscreen.ui.ImmersiveController
 import fr.webinfoconcept.secondscreen.ui.ViewSystemUiHost
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Écran distant : héberge le [RemoteSurfaceView] en plein écran (SS-030, SS-031, SS-032, SS-034) et transmet les taps
- * comme clics gauche et les glissements comme déplacements bouton enfoncé, l'appui long comme clic droit (SS-040 à SS-043).
+ * Écran distant (SS-030 à SS-034, SS-040 à SS-044, SS-052 à SS-054) : la surface plein écran, les entrées tactiles, la
+ * barre de commandes et le panneau d'état de la connexion.
  *
- * **Provisoire** : en attendant la connexion réelle (SS-054), affiche un motif de test ([RenderTestPattern]) et, si
- * [EXTRA_ANIMATE] est demandé, y déplace un carré avec [RenderTestDriver], qui emprunte le même chemin que le
- * décodeur (thread d'arrière-plan -> zone modifiée -> rendu). Le contrôleur de connexion remplacera tout cela par le
- * framebuffer alimenté par le serveur. De même les messages de pointeur ne partent pas encore vers un serveur : ils
- * suivent le chemin réel (tap -> pixel du framebuffer -> `PointerEvent` -> file -> thread d'envoi) mais l'écriture
- * finale ne fait que les compter. SS-054 y branchera `PointerSender.forSocket`.
+ * **La session appartient à [SessionManager]**, pas à cette activité : elle affiche l'écran de la session courante et lui
+ * envoie les entrées. Une rotation (paysage/paysage inversé, `configChanges`) ne la recrée pas.
  *
- * - **Paysage** (manifeste) et **mode immersif** ([ImmersiveController]) : la surface fait alors exactement la taille de
- *   l'écran, condition du rendu 1:1 sans rien rogner.
- * - Le mode immersif est (ré)activé quand la fenêtre prend le focus : le système efface les drapeaux quand elle le perd.
+ * ## Vie de la session
+ * Elle dure **tant que cet écran est visible**. Quand il ne l'est plus (Accueil, autre application, écran éteint), la
+ * session est fermée : pas de service, donc aucun trafic ni thread en arrière-plan. Au retour, le panneau d'état propose
+ * **Reconnecter** (SS-054), avec une boîte de saisie du mot de passe si le serveur en exigeait un (il n'est pas
+ * conservé, SECURITY.md). L'ouverture du diagnostic depuis la barre ne ferme pas la session.
+ *
+ * ## Panneau d'état (SS-053)
+ * Visible tant que la session n'est pas établie : progression pendant la connexion, message compréhensible et boutons
+ * Reconnecter / Fermer après une erreur ou une déconnexion. Le dernier écran reçu reste affiché derrière.
+ *
+ * ## Barre de commandes (SS-052)
+ * Clavier, Pointeur (désactivés : SS-046/047 et SS-045), Diagnostic, Déconnexion. Elle s'affiche par la touche **Retour**
+ * ou un **tap à trois doigts**. Retour quand elle est visible quitte l'écran : la sortie reste toujours à deux gestes.
  */
-class RemoteActivity : Activity() {
+class RemoteActivity : Activity(), ConnectionController.Listener {
+
+    private val controller get() = SessionManager.controller
 
     private lateinit var surface: RemoteSurfaceView
+    private lateinit var actions: PointerActions
+    private lateinit var touchInput: TouchInput
     private lateinit var immersive: ImmersiveController
-    private var driver: RenderTestDriver? = null
-    private var pointerSender: PointerSender? = null
-    private var touchInput: TouchInput? = null
-    private val messagesSent = AtomicInteger()
+    private lateinit var bar: View
+    private lateinit var overlay: View
+    private lateinit var status: TextView
+    private lateinit var progress: ProgressBar
+    private lateinit var reconnect: Button
+
+    /** Vrai quand on quitte cet écran pour le diagnostic : la session doit alors survivre à `onStop`. */
+    private var keepSessionOnStop = false
+
+    // Le mode immersif n'est actif que fenêtre au premier plan ET session affichée (voir applyImmersive).
+    private var windowFocused = false
+    private var sessionShown = false
 
     // setOnSystemUiVisibilityChangeListener est déprécié depuis l'API 30 mais reste le seul moyen sur Android 4.2.
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        surface = RemoteSurfaceView(this)
-        setContentView(surface)
+        setContentView(R.layout.activity_remote)
+        surface = findViewById(R.id.remote_surface)
+        bar = findViewById(R.id.remote_bar)
+        overlay = findViewById(R.id.remote_overlay)
+        status = findViewById(R.id.remote_status)
+        progress = findViewById(R.id.remote_progress)
+        reconnect = findViewById(R.id.remote_reconnect)
 
-        val framebuffer = RenderTestPattern.create()
-        surface.setFramebuffer(framebuffer)
-        if (intent.getBooleanExtra(EXTRA_ANIMATE, false)) {
-            driver = RenderTestDriver(framebuffer, surface, maxFrames = intent.getIntExtra(EXTRA_FRAMES, 0))
+        // Le mappeur est remplacé à l'établissement de chaque session, selon la taille de l'écran distant.
+        actions = PointerActions(PointerMapper(FALLBACK_WIDTH, FALLBACK_HEIGHT), controller.input)
+        touchInput = TouchInput(
+            actions,
+            ViewConfiguration.get(this).scaledTouchSlop.toFloat(),
+            surface,
+            onToggleBar = { toggleBar() }
+        )
+        surface.setOnTouchListener(touchInput)
+
+        reconnect.setOnClickListener { askReconnect() }
+        findViewById<Button>(R.id.remote_close).setOnClickListener { leave() }
+        findViewById<Button>(R.id.bar_disconnect).setOnClickListener { leave() }
+        findViewById<Button>(R.id.bar_diagnostic).setOnClickListener {
+            keepSessionOnStop = true
+            startActivity(Intent(this, DiagnosticActivity::class.java))
         }
-
-        // Provisoire : l'écriture finale compte les messages au lieu de les envoyer (voir la doc de la classe).
-        val sender = PointerSender { messagesSent.incrementAndGet() }
-        pointerSender = sender
-        val actions = PointerActions(PointerMapper(framebuffer.width, framebuffer.height), sender)
-        val input = TouchInput(actions, ViewConfiguration.get(this).scaledTouchSlop.toFloat(), surface)
-        touchInput = input
-        surface.setOnTouchListener(input)
 
         immersive = ImmersiveController(ViewSystemUiHost(surface))
         surface.setOnSystemUiVisibilityChangeListener { immersive.onSystemUiVisibilityChange(it) }
@@ -66,33 +99,44 @@ class RemoteActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        pointerSender?.start()
-        driver?.start()
-    }
-
-    override fun onPause() {
-        // Un glissement en cours est relâché tant que l'envoyeur tourne encore (il s'arrête dans onStop).
-        touchInput?.cancelGesture()
-        super.onPause()
+        keepSessionOnStop = false
+        controller.addListener(this)
+        controller.setRenderTarget(surface)
+        render(controller.state, controller.failure)
     }
 
     override fun onStop() {
-        driver?.let {
-            it.stop()
-            // Une seule ligne, à l'arrêt : cadence atteinte (mesure de SS-031). Aucune donnée sensible.
-            Log.i(TAG, "rendu de test : ${it.frames} images en ${it.elapsedMs} ms")
-        }
-        pointerSender?.let {
-            it.stop()
-            Log.i(TAG, "entrées de test : ${messagesSent.get()} message(s) traité(s), ${it.droppedCount} perdu(s)")
-        }
+        touchInput.cancelGesture()
+        controller.removeListener(this)
+        controller.setRenderTarget(null)
+        // Plus visible : la session est fermée (pas de service). Sauf départ vers le diagnostic.
+        if (!keepSessionOnStop) controller.disconnect()
         super.onStop()
+    }
+
+    override fun onPause() {
+        // Un glissement en cours est relâché tant que l'envoyeur tourne encore.
+        touchInput.cancelGesture()
+        super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) immersive.enable() else immersive.disable()
-        if (!hasFocus) touchInput?.cancelGesture() // le système n'envoie pas toujours ACTION_CANCEL
+        windowFocused = hasFocus
+        applyImmersive()
+        if (!hasFocus) touchInput.cancelGesture() // le système n'envoie pas toujours ACTION_CANCEL
+    }
+
+    /**
+     * Mode immersif seulement pendant la session. Sur Android 4.2, quand la barre système est masquée, chaque toucher
+     * qui la fait réapparaître est annulé (`ACTION_CANCEL`) au lieu d'être livré : **tout toucher après quelques
+     * secondes d'inactivité est perdu**. C'est supportable devant l'écran distant (ARCHITECTURE.md, « Mode immersif »),
+     * pas sur le panneau d'état ni sur la barre de commandes, dont les boutons doivent répondre du premier coup : on y
+     * laisse donc la barre système visible. Conséquence : tant que la barre de commandes est affichée, l'écran distant
+     * est rogné des 48 lignes du bas.
+     */
+    private fun applyImmersive() {
+        if (windowFocused && sessionShown && bar.visibility != View.VISIBLE) immersive.enable() else immersive.disable()
     }
 
     override fun onDestroy() {
@@ -100,13 +144,96 @@ class RemoteActivity : Activity() {
         super.onDestroy()
     }
 
-    companion object {
-        /** Anime un carré sur le motif de test (chemin de mise à jour identique à celui du décodeur). */
-        const val EXTRA_ANIMATE = "fr.webinfoconcept.secondscreen.ANIMATE"
+    /** Retour : affiche la barre ; si elle est déjà visible (ou hors session), quitte l'écran. */
+    override fun onBackPressed() {
+        if (controller.state == ConnectionState.CONNECTED && bar.visibility != View.VISIBLE) {
+            toggleBar()
+        } else {
+            leave()
+        }
+    }
 
-        /** Nombre d'images après lequel l'animation s'arrête d'elle-même (0 = sans fin). */
-        const val EXTRA_FRAMES = "fr.webinfoconcept.secondscreen.FRAMES"
+    // ------------------------------------------------------------------ état de la connexion
 
-        private const val TAG = "SecondScreen"
+    override fun onStateChanged(state: ConnectionState, failure: ConnectionFailure?) {
+        runOnUiThread { if (!isFinishing) render(state, failure) }
+    }
+
+    private fun render(state: ConnectionState, failure: ConnectionFailure?) {
+        sessionShown = state == ConnectionState.CONNECTED
+        applyImmersive()
+        if (state == ConnectionState.CONNECTED) {
+            attachSession()
+            overlay.visibility = View.GONE
+            return
+        }
+        val busy = state == ConnectionState.CONNECTING || state == ConnectionState.RECONNECTING ||
+            state == ConnectionState.NEGOTIATING
+        overlay.visibility = View.VISIBLE
+        progress.visibility = if (busy) View.VISIBLE else View.GONE
+        reconnect.visibility = if (busy) View.GONE else View.VISIBLE
+        reconnect.isEnabled = controller.lastConnection != null
+        bar.visibility = View.GONE
+        applyImmersive()
+
+        status.text = when (state) {
+            ConnectionState.CONNECTING -> getString(R.string.state_connecting, controller.lastConnection.toString())
+            ConnectionState.RECONNECTING -> getString(R.string.state_reconnecting, controller.lastConnection.toString())
+            ConnectionState.NEGOTIATING -> getString(R.string.state_negotiating)
+            ConnectionState.ERROR ->
+                if (failure != null) FailureMessages.text(this, failure) else getString(R.string.state_disconnected)
+            else -> getString(if (controller.lastConnection != null) R.string.state_disconnected else R.string.state_no_connection)
+        }
+    }
+
+    /** Affiche l'écran de la session établie et cale la conversion des touchers sur sa taille. */
+    private fun attachSession() {
+        val info = controller.session ?: return
+        actions.mapper = PointerMapper(info.framebuffer.width, info.framebuffer.height)
+        surface.setFramebuffer(info.framebuffer)
+    }
+
+    // ------------------------------------------------------------------ actions
+
+    private fun toggleBar() {
+        if (controller.state != ConnectionState.CONNECTED) return
+        bar.visibility = if (bar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        applyImmersive()
+    }
+
+    /** Ferme la session et revient à la liste des connexions. */
+    private fun leave() {
+        controller.disconnect()
+        finish()
+    }
+
+    /** Relance la connexion ; demande d'abord le mot de passe si le serveur en exigeait un (il n'est pas conservé). */
+    private fun askReconnect() {
+        if (!controller.reconnectNeedsPassword) {
+            controller.reconnect()
+            return
+        }
+        val field = EditText(this)
+        field.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        field.isSaveEnabled = false
+        AlertDialog.Builder(this)
+            .setTitle(R.string.remote_password_title)
+            .setMessage(R.string.remote_password_message)
+            .setView(field)
+            .setPositiveButton(R.string.remote_password_ok) { _, _ ->
+                val editable = field.text
+                val chars = CharArray(editable.length)
+                editable.getChars(0, chars.size, chars, 0)
+                editable.clear()
+                controller.reconnect(if (chars.isEmpty()) null else chars) // efface `chars`
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private companion object {
+        // Taille avant la première session : celle de la tablette cible (nominale, AGENTS.md).
+        const val FALLBACK_WIDTH = 1280
+        const val FALLBACK_HEIGHT = 800
     }
 }

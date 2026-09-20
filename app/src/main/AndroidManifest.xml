@@ -25,6 +25,12 @@
             </intent-filter>
         </activity>
 
+        <!-- SS-050 : écran de connexion, non exporté. Le clavier ne doit pas masquer le formulaire. -->
+        <activity
+            android:name=".ConnectActivity"
+            android:label="@string/connect_button"
+            android:windowSoftInputMode="stateHidden|adjustResize" />
+
         <!-- SS-003 : écran de diagnostic, pas de intent-filter -> exported=false
              implicite, non accessible depuis l'extérieur de l'app. -->
         <activity
@@ -33,10 +39,13 @@
 
         <!-- Écran distant plein écran, non exporté (SS-030). Paysage forcé (F03) : c'est un moniteur 1280×800 fixe,
              pas une interface adaptative, donc l'avertissement Lint sur l'orientation verrouillée ne s'applique pas.
-             sensorLandscape autorise les deux paysages : la tablette peut être posée dans les deux sens. -->
+             sensorLandscape autorise les deux paysages : la tablette peut être posée dans les deux sens.
+             configChanges : retourner la tablette (paysage <-> paysage inversé) ne recrée pas l'activité, donc ne coupe
+             pas la session. -->
         <activity
             android:name=".RemoteActivity"
             android:label="@string/remote_title"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/RemoteTheme"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SS-052, SS-053 : écran distant, fusionné dans le FrameLayout de contenu de l'activité (setContentView). La surface prend tout l'écran (le fond noir vient du thème RemoteTheme) ; la barre de commandes (en haut) et le panneau d'état
+     (au centre) sont des vues ordinaires posées par-dessus, masquées par défaut. -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <fr.webinfoconcept.secondscreen.render.RemoteSurfaceView
+        android:id="@+id/remote_surface"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Barre de commandes : Back ou tap à trois doigts l'affiche/la masque. Clavier et pointeur sont réservés à
+         SS-046/SS-047 et SS-045 : désactivés tant que ces issues ne sont pas faites. -->
+    <LinearLayout
+        android:id="@+id/remote_bar"
+        style="?android:attr/buttonBarStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="@color/bar"
+        android:orientation="horizontal"
+        android:padding="4dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/bar_keyboard"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="@string/bar_keyboard" />
+
+        <Button
+            android:id="@+id/bar_pointer"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="@string/bar_pointer" />
+
+        <Button
+            android:id="@+id/bar_diagnostic"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/bar_diagnostic" />
+
+        <Button
+            android:id="@+id/bar_disconnect"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/bar_disconnect" />
+    </LinearLayout>
+
+    <!-- État de la connexion (SS-053) et reconnexion (SS-054). Visible tant que la session n'est pas établie. -->
+    <LinearLayout
+        android:id="@+id/remote_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@color/panel"
+        android:minWidth="420dp"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/remote_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="520dp"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp" />
+
+        <ProgressBar
+            android:id="@+id/remote_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:indeterminate="true" />
+
+        <LinearLayout
+            style="?android:attr/buttonBarStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/remote_reconnect"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/remote_reconnect" />
+
+            <Button
+                android:id="@+id/remote_close"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/remote_close" />
+        </LinearLayout>
+    </LinearLayout>
+</merge>

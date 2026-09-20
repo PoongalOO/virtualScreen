@@ -3,4 +3,7 @@
     <color name="background">#101418</color>
     <color name="text_primary">#FFFFFF</color>
     <color name="text_secondary">#B0BEC5</color>
+    <color name="error">#FF8A80</color>
+    <color name="panel">#E6202428</color>
+    <color name="bar">#CC202428</color>
 </resources>

@@ -102,19 +102,19 @@ Ctrl, Alt, Shift, Tab, Esc, Enter, Backspace.
 ## Epic E5 — UX et profils
 
 ### SS-050 — Écran de connexion — P0
-Hôte, port, sécurité, connexion.
+Hôte, port, sécurité, connexion. *(Fait : `ConnectActivity`, `ProfileForm`, `ConnectionParams`. « Sécurité » = mot de passe VNC (types Aucun et VNC Authentication) ; le mot de passe n'est jamais enregistré.)*
 
 ### SS-051 — Enregistrer profils — P1
-Nom/hôte/port, sans fuite de secret.
+Nom/hôte/port, sans fuite de secret. *(Fait : `ProfileStore`, `MainActivity` (liste, suppression par appui long, dernier profil en tête).)*
 
 ### SS-052 — Barre de commandes distante — P1
-Clavier, mode pointeur, diagnostic, déconnexion.
+Clavier, mode pointeur, diagnostic, déconnexion. *(Fait pour Diagnostic et Déconnexion ; **Clavier et Pointeur sont des boutons désactivés** en attendant SS-046/SS-047 et SS-045. Affichage : touche Retour ou tap à trois doigts.)*
 
 ### SS-053 — États et erreurs compréhensibles — P0
-Connexion, négociation, auth, timeout, réseau coupé.
+Connexion, négociation, auth, timeout, réseau coupé. *(Fait : `ConnectionState`, `ConnectionFailure` (17 causes), `FailureMessages`, panneau d'état de l'écran distant, signe de vie pour détecter un réseau coupé.)*
 
 ### SS-054 — Reconnexion manuelle — P0
-Pas de redémarrage de l'application.
+Pas de redémarrage de l'application. *(Fait : `ConnectionController`, bouton Reconnecter. Le mot de passe n'étant pas conservé, il est redemandé si le serveur en exigeait un. Branche `KeepAlive`, `FramebufferUpdateRequest`, rendu et entrées sur la connexion réelle : SS-027, SS-031, SS-040 à SS-044, SS-064.)*
 
 ### SS-055 — Reconnexion automatique — P2
 Backoff borné, désactivable.

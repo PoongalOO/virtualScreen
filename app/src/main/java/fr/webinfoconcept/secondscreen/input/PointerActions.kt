@@ -6,7 +6,7 @@ import fr.webinfoconcept.secondscreen.rfb.protocol.PointerButtons
 /**
  * Traduit une action de l'utilisateur en messages `PointerEvent` envoyés au serveur (SS-040, SS-041, SS-042, SS-043) : convertit
  * la position de la vue en pixel du framebuffer ([PointerMapper]), compose le message ([ClientMessages]) et le confie à
- * [PointerSender]. Appelée sur le thread UI ; ne bloque jamais.
+ * un [MessageSink]. Appelée sur le thread UI ; ne bloque jamais.
  *
  * **Glissement** ([DragListener]) : `onDragStart` envoie survol + appui au pixel de départ, chaque `onDragMove` un
  * `PointerEvent` bouton enfoncé, `onDragEnd` le relâchement. Garde-fous :
@@ -20,12 +20,12 @@ import fr.webinfoconcept.secondscreen.rfb.protocol.PointerButtons
  * (`ClientMessages.wheel`), envoyé à la position du **centre des deux doigts au début du geste**, bornée au
  * framebuffer : c'est la fenêtre sous les doigts au départ qui défile, même si le centre traverse ensuite d'autres
  * fenêtres. Aucun bouton ordinaire n'est touché. Un message de molette est complet (chaque appui suivi de son
- * relâchement) et **remplaçable** : il passe par [PointerSender.sendMove], donc une liaison lente perd des crans,
+ * relâchement) et **remplaçable** : il passe par [MessageSink.sendMove], donc une liaison lente perd des crans,
  * jamais un relâchement de bouton ni la place réservée aux messages d'état.
  *
  * @param mapper taille du framebuffer distant ; à remplacer si elle change (redimensionnement).
  */
-class PointerActions(@Volatile var mapper: PointerMapper, private val sender: PointerSender) :
+class PointerActions(@Volatile var mapper: PointerMapper, private val sender: MessageSink) :
     DragListener, ScrollListener {
 
     private val pixel = IntArray(2) // réutilisé : appelé depuis le seul thread UI

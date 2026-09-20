@@ -22,6 +22,7 @@ class ViewDelayScheduler(private val view: View) : DelayScheduler {
  * doigts des crans de molette.
  *
  * @param view la vue qui reçoit les événements : sert de minuteur pour l'appui long et de support au retour haptique.
+ * @param onToggleBar appelé sur un tap à trois doigts (SS-052) : affiche ou masque la barre de commandes.
  * @param scrollStepPx chemin du centre des deux doigts pour un cran de molette ; @param naturalScrolling le contenu
  *   suit les doigts (défaut) ou sens d'une molette de souris (SS-044).
  * @param longPressMs durée d'appui qui déclenche le clic droit ; par défaut celle de la plateforme
@@ -50,7 +51,8 @@ class TouchInput(
     private val view: View,
     longPressMs: Long = ViewConfiguration.getLongPressTimeout().toLong(),
     scrollStepPx: Float = Scroll.DEFAULT_STEP_PX,
-    naturalScrolling: Boolean = true
+    naturalScrolling: Boolean = true,
+    private val onToggleBar: (() -> Unit)? = null
 ) : View.OnTouchListener {
 
     private val longPress = LongPress(longPressMs, ViewDelayScheduler(view)) { x, y ->
@@ -60,6 +62,8 @@ class TouchInput(
             view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         }
     }
+
+    private val threeFingerTap = ThreeFingerTap(maxDriftPx = slopPx * 4f)
 
     private val detector = TouchGestureDetector(
         slopPx,
@@ -72,27 +76,62 @@ class TouchInput(
      * Abandonne le geste en cours : un glissement est relâché côté serveur. À appeler quand la vue cesse de recevoir
      * les événements (perte du focus, mise en pause) : Android n'envoie pas toujours `ACTION_CANCEL` alors.
      */
-    fun cancelGesture() = detector.onCancel()
+    fun cancelGesture() {
+        threeFingerTap.cancel()
+        detector.onCancel()
+    }
 
     override fun onTouch(view: View, event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> detector.onDown(event.x, event.y, event.eventTime)
-            MotionEvent.ACTION_MOVE ->
+            MotionEvent.ACTION_MOVE -> {
+                if (threeFingerTap.isTracking && event.pointerCount == 3) {
+                    val (cx, cy) = centerOf(event, 3)
+                    threeFingerTap.onMove(cx, cy)
+                }
                 if (detector.isScrolling && event.pointerCount >= 2) {
                     detector.onTwoFingersMove(centerX(event), centerY(event))
                 } else {
                     detector.onMove(event.x, event.y)
                 }
-            MotionEvent.ACTION_POINTER_DOWN ->
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
                 // Exactement deux doigts : un défilement peut commencer ; trois ou plus : geste abandonné.
                 if (event.pointerCount == 2) detector.onTwoFingersDown(centerX(event), centerY(event))
                 else detector.onSecondFingerDown()
+                if (event.pointerCount == 3) {
+                    val (cx, cy) = centerOf(event, 3)
+                    threeFingerTap.onThreeFingersDown(cx, cy, event.eventTime)
+                } else {
+                    threeFingerTap.cancel() // un quatrième doigt n'est pas un tap à trois doigts
+                }
+            }
             // Un doigt se lève alors qu'il en reste : le nombre de doigts change, le geste (défilement) se termine.
-            MotionEvent.ACTION_POINTER_UP -> detector.onCancel()
-            MotionEvent.ACTION_UP -> if (detector.onUp(event.x, event.y, event.eventTime)) view.performClick()
-            MotionEvent.ACTION_CANCEL -> detector.onCancel()
+            MotionEvent.ACTION_POINTER_UP -> {
+                detector.onCancel()
+                if (threeFingerTap.onFingerUp(event.eventTime)) onToggleBar?.invoke()
+            }
+            MotionEvent.ACTION_UP -> {
+                threeFingerTap.cancel()
+                if (detector.onUp(event.x, event.y, event.eventTime)) view.performClick()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                threeFingerTap.cancel()
+                detector.onCancel()
+            }
         }
         return true
+    }
+
+    /** Centre des [count] premiers doigts. */
+    private fun centerOf(event: MotionEvent, count: Int): Pair<Float, Float> {
+        var x = 0f
+        var y = 0f
+        for (i in 0 until count) {
+            x += event.getX(i)
+            y += event.getY(i)
+        }
+        return Pair(x / count, y / count)
     }
 
     /** Centre des deux premiers doigts (le défilement n'existe qu'à exactement deux doigts). */

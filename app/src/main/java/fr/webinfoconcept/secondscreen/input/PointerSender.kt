@@ -3,6 +3,15 @@ package fr.webinfoconcept.secondscreen.input
 import fr.webinfoconcept.secondscreen.rfb.transport.RfbSocket
 import java.util.concurrent.ArrayBlockingQueue
 
+/** Où [PointerActions] dépose les messages à envoyer au serveur ; ne bloque jamais. */
+interface MessageSink {
+    /** Message d'état (appui, relâchement, clic) : ne doit pas se perdre. @return `false` s'il est refusé. */
+    fun send(message: ByteArray): Boolean
+
+    /** Message remplaçable (déplacement, molette). @return `false` s'il est abandonné. */
+    fun sendMove(message: ByteArray): Boolean
+}
+
 /**
  * Envoie les messages d'entrée au serveur **hors du thread UI** (SS-040).
  *
@@ -33,7 +42,7 @@ class PointerSender(
     private val onError: (Throwable) -> Unit = {},
     capacity: Int = DEFAULT_CAPACITY,
     private val write: (ByteArray) -> Unit
-) {
+) : MessageSink {
     init {
         require(capacity in 1..MAX_CAPACITY) { "capacité hors de 1..$MAX_CAPACITY : $capacity" }
     }
@@ -86,7 +95,7 @@ class PointerSender(
      * Met [message] en file. Ne bloque jamais : utilisable depuis le thread UI.
      * @return `false` si l'envoyeur est arrêté ou si la file est pleine (le message est alors perdu).
      */
-    fun send(message: ByteArray): Boolean {
+    override fun send(message: ByteArray): Boolean {
         synchronized(lock) {
             if (worker == null) return false
             if (queue.offer(message)) return true
@@ -100,7 +109,7 @@ class PointerSender(
      * dès que la file n'a plus que la place réservée aux messages d'état de [send].
      * @return `false` si l'envoyeur est arrêté ou si le déplacement a été abandonné.
      */
-    fun sendMove(message: ByteArray): Boolean {
+    override fun sendMove(message: ByteArray): Boolean {
         synchronized(lock) {
             if (worker == null) return false
             if (queue.remainingCapacity() > stateReserve && queue.offer(message)) return true
