@@ -29,6 +29,7 @@ Aucun code ne doit supposer qu'un `read()` retourne la totalité d'un message. L
 - dimensions nulles/excessives ;
 - rectangle hors écran ;
 - taille provoquant overflow ;
+- **ces cas sont couverts systématiquement par `rfb/robustness` (SS-070)** : valeurs limites de toutes les longueurs et géométries, flux aléatoires, mutés et tronqués à chaque position, voir SECURITY.md ;
 - type message inconnu ;
 - Wi-Fi coupé puis restauré.
 

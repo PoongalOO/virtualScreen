@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-061). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-063). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -15,10 +15,10 @@ Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (derni
 | E4 — Entrées | 8/8 | 0 | 0 |
 | E5 — UX et profils | 6/6 | 0 | 0 |
 | E6 — Performance | 5/5 | 0 | 0 |
-| E7 — Sécurité | 0/4 | 3 | 1 |
+| E7 — Sécurité | 1/4 | 2 | 1 |
 | E8 — Tests et compatibilité | 4/8 | 2 | 2 |
 | E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **44/57** | **5** | **8** |
+| **Total** | **45/57** | **4** | **8** |
 
 ## Epic E0 — Initialisation
 
@@ -197,8 +197,8 @@ Sur liaison silencieuse, un paquet entrant attend en médiane ~700 ms (jusqu'à 
 ## Epic E7 — Sécurité
 
 ### SS-070 — Validation stricte des tailles réseau — P0
-**Statut : 🟡 Partiel** — Bornes et validations posées dans les lecteurs et décodeurs au fil des issues (dimensions ≤ 4096 et pixels bornés, nom du bureau, texte du presse-papiers, sous-rectangles Hextile, rectangles hors framebuffer), avec tests négatifs. Pas de revue transverse dédiée ni de test de robustesse sur flux aléatoires.
-Overflow, tailles négatives/interprétées, rectangles hors limites.
+**Statut : ✅ Fait**
+Overflow, tailles négatives/interprétées, rectangles hors limites. *(Fait : revue transverse de toutes les valeurs que le serveur fixe (table dans SECURITY.md) ; `rfb/robustness` : plus de 120 000 cas déterministes (géométrie des 3 encodages × 13⁴ valeurs limites, longueurs aux bornes U8/U16/U32 et Int signé, chaque octet de la bannière et de `ServerInit`, flux aléatoires, mutés et coupés à chaque position, « aucun pixel hors du rectangle annoncé »), sur une socket en mémoire (`MemorySocket`). 24 tests, 7 mutations du code de production toutes détectées. **La revue n'a trouvé aucun défaut** : les bornes étaient déjà posées. **Limites :** temps par message non borné (serveur au goutte-à-goutte), quantité de rectangles par mise à jour bornée seulement par le temps, écran > 1920×1200 refusé (budget mémoire), flux produits sur la JVM (pas de vrai serveur hostile, pas de fuzzing en continu).)*
 
 ### SS-071 — Nettoyer les logs — P0
 **Statut : 🟡 Partiel** — Le code ne journalise que la ligne de mesures (nombres, tag `SecondScreenPerf`) ; le mot de passe est effacé après usage. Aucun test ni contrôle automatique n'empêche d'ajouter un journal sensible plus tard.
