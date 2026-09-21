@@ -62,5 +62,4 @@ scripts/reference-server.sh down
 
 Options : `--no-perf` (mesures désactivées, configuration de production : seuls le ramasse-miettes et `dumpsys meminfo` sont enregistrés), `--fit` (rendu ajusté), `--phase-s`, `--input-every-s`. Le script garde l'écran allumé pendant la session et restaure le réglage à la fin. Il n'utilise aucun mot de passe VNC.
 
-Pièges rencontrés : `KEYCODE_WAKEUP` n'existe pas sur Android 4.2 (le script utilise la touche Marche) ; les réglages de l'application sont stockés comme **chaînes** (`<string name="show_performance">true</string>`), un booléen XML est ignoré sans erreur ; le clavier logiciel décale les champs du formulaire.
-
+Pièges rencontrés : `KEYCODE_WAKEUP` n'existe pas sur Android 4.2 (le script utilise la touche Marche) ; les réglages de l'application sont stockés comme **chaînes** (`<string name="show_performance">true</string>`), un booléen XML est ignoré sans erreur ; le clavier logiciel décale les champs du formulaire. `reference_session.py` réessaie une fois après `adb kill-server` si la tablette disparaît, puis s'arrête proprement en marquant la session « interrompue » (données partielles conservées, à ne pas confondre avec une session complète).

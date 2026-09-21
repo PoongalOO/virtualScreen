@@ -65,7 +65,8 @@ def main():
     span = (perf[-1]["t"] - perf[0]["t"]) if has_perf else meta["minutes"] * 60 - a.warmup_s
     gaps = sum(1 for x, y in zip(perf, perf[1:]) if y["t"] - x["t"] > 3)
     mode = "mesures activées" if has_perf else "**mesures désactivées** (configuration de production)"
-    w(f"## Session de référence : {meta['minutes']:g} min, {mode}, {meta.get('model', '?')} Android {meta.get('android', '?')}, application {meta.get('app_version', '?')}, rendu {'ajusté' if meta.get('fit') else '1:1'}\n")
+    planned = f"{meta['minutes']:g} min prévues, **interrompue après {meta['interrupted_after_s'] // 60} min {meta['interrupted_after_s'] % 60} s**" if meta.get("interrupted_after_s") else f"{meta['minutes']:g} min"
+    w(f"## Session de référence : {planned}, {mode}, {meta.get('model', '?')} Android {meta.get('android', '?')}, application {meta.get('app_version', '?')}, rendu {'ajusté' if meta.get('fit') else '1:1'}\n")
     if has_perf:
         w(f"- lignes de mesure : **{len(perf)}** sur {span:.0f} s (après {a.warmup_s} s d'échauffement), trous > 3 s : **{gaps}** ; processus vus : {sorted(pids)}")
     else:
@@ -76,8 +77,27 @@ def main():
 
     # ---- par phase
     if has_perf:
+        # Phase à l'instant t : d'après les changements de phase **réellement** enregistrés par la charge (workload-phases.log).
+        # Un découpage théorique toutes les phase_s secondes dériverait : chaque cycle dure ~2 s de plus que 5 phases
+        # (démarrage des fenêtres, dernière ouverture de la phase « windows »), soit ~110 s de décalage après 2 h.
+        changes = []
+        wl = os.path.join(a.dir, "workload-phases.log")
+        if os.path.exists(wl) and "host_start_epoch" in meta:
+            for line in open(wl):
+                parts = line.split()
+                if len(parts) == 2:
+                    changes.append((float(parts[0]) - float(meta["host_start_epoch"]), parts[1]))
+
         def phase_of(t):
-            return phases[int(t // phase_s) % len(phases)]
+            if not changes:
+                return phases[int(t // phase_s) % len(phases)]
+            current = changes[0][1]
+            for when, name in changes:
+                if when <= t:
+                    current = name
+                else:
+                    break
+            return current
 
         def gc_per_min(name, seconds):  # ramasse-miettes lus dans le journal Dalvik (le compteur de Debug rend toujours 0 ici)
             return 60 * sum(1 for g in gcs if g["t"] >= a.warmup_s and phase_of(g["t"]) == name) / seconds
@@ -104,6 +124,24 @@ def main():
           f"{60 * len([g for g in gcs if g['t'] >= a.warmup_s]) / len(allg):.1f} | {statistics.fmean(x['cpu'] for x in allg):.0f} |")
         w("\n« par mise à jour » = objets alloués par le thread de session divisés par les mises à jour reçues (phases sans mise à jour : —). "
           "Les mesures elles-mêmes (une ligne de journal et le texte du bandeau par seconde) sont comptées dans « thread UI », pas dans « thread session ».")
+
+    # ---- stabilité dans le temps : 6 fenêtres égales
+    if has_perf and len(perf) >= 60:
+        n = 6
+        size = len(perf) // n
+        w("\n### Stabilité dans le temps (6 fenêtres égales)\n")
+        w("| Fenêtre | alloc. thread session /mise à jour | alloc. processus /s | GC/min | tas après GC (médiane, Ko) | CPU % |")
+        w("|---|---|---|---|---|---|")
+        for i in range(n):
+            chunk = perf[i * size:(i + 1) * size] if i < n - 1 else perf[i * size:]
+            t_lo, t_hi = chunk[0]["t"], chunk[-1]["t"]
+            upd = sum(x["maj/s"] for x in chunk)
+            per_upd = f"{sum(x['sess_alloc/s'] for x in chunk) / upd:.1f}" if upd > 0 else "—"
+            gcs_in = [g for g in gcs if t_lo <= g["t"] <= t_hi]
+            heap = f"{statistics.median(g['used_kb'] for g in gcs_in):.0f}" if gcs_in else "—"
+            w(f"| {t_lo / 60:.0f}–{t_hi / 60:.0f} min | {per_upd} | {statistics.fmean(x['alloc/s'] for x in chunk):.0f} | "
+              f"{60 * len(gcs_in) / max(1, t_hi - t_lo):.1f} | {heap} | {statistics.fmean(x['cpu'] for x in chunk):.0f} |")
+        w("\nLa charge est cyclique et les fenêtres ne contiennent pas toutes un nombre entier de cycles : de petits écarts de « par mise à jour » ou de CPU entre fenêtres viennent de la composition des phases, pas d'une dérive.")
 
     # ---- ramasse-miettes et tas
     alerts = []

@@ -18,8 +18,27 @@ ADB = os.environ.get("ADB", os.path.expanduser("~/Android/Sdk/platform-tools/adb
 CONTAINER = os.environ.get("NAME", "ss-vnc-test")
 
 
+class AdbLost(SystemExit):
+    """La tablette n'est plus joignable par adb (câble, adbd arrêté, appareil éteint)."""
+
+
+def _adb_once(args, timeout):
+    return subprocess.run([ADB, *args], capture_output=True, text=True, timeout=timeout)
+
+
 def adb(*args, check=True, timeout=60):
-    r = subprocess.run([ADB, *args], capture_output=True, text=True, timeout=timeout)
+    r = _adb_once(args, timeout)
+    if r.returncode != 0 and "no devices" in (r.stderr + r.stdout):
+        # Une perte passagère se répare parfois en relançant le serveur adb ; sinon on s'arrête proprement.
+        subprocess.run([ADB, "kill-server"], capture_output=True)
+        subprocess.run([ADB, "start-server"], capture_output=True)
+        try:
+            _adb_once(["wait-for-device"], 30)
+        except subprocess.TimeoutExpired:
+            pass
+        r = _adb_once(args, timeout)
+        if r.returncode != 0 and "no devices" in (r.stderr + r.stdout):
+            raise AdbLost("tablette injoignable par adb")
     if check and r.returncode != 0:
         raise SystemExit(f"adb {' '.join(args)} : {r.stderr.strip() or r.stdout.strip()}")
     return r.stdout.replace("\r", "")
@@ -181,11 +200,14 @@ def main():
     if subprocess.run(["docker", "exec", CONTAINER, "true"], capture_output=True).returncode != 0:
         raise SystemExit(f"conteneur {CONTAINER} absent : lancer scripts/reference-server.sh up")
 
-    old_stay = sh("settings get global stay_on_while_plugged_in").strip()
+    old_stay = sh("settings get global stay_on_while_plugged_in").strip()  # restauré à la fin ; noter que si cette valeur a déjà été changée à la main, c'est elle qui est restaurée
     sh("settings put global stay_on_while_plugged_in 3")  # écran allumé pendant toute la session (restauré à la fin)
     ensure_screen_on()
     set_display_settings(perf=not a.no_perf, fit=a.fit)
     logcat = None
+    interrupted = False
+    start = time.time()
+    meta = {}
     try:
         connect(a.host, a.port)
         p = pid()
@@ -253,6 +275,12 @@ def main():
         meta["host_end_epoch"] = time.time()
         meta["device_end_local"] = sh("date '+%Y-%m-%d %H:%M:%S'").strip()
         json.dump(meta, open(os.path.join(a.out, "meta.json"), "w"), indent=1)
+    except AdbLost as e:
+        log(f"ANOMALIE : {e} après {int(time.time() - start)} s : session interrompue")
+        meta["interrupted_after_s"] = int(time.time() - start)
+        json.dump(meta, open(os.path.join(a.out, "meta.json"), "w"), indent=1)
+        print(f"INTERROMPUE après {meta['interrupted_after_s']} s : la tablette n'est plus joignable par adb")
+        interrupted = True
     finally:
         # Arrête la charge (le script et ses fenêtres xterm), pas le serveur.
         subprocess.run(["docker", "exec", CONTAINER, "sh", "-c",
@@ -263,8 +291,11 @@ def main():
             time.sleep(2)
             logcat.terminate()
         subprocess.run(["docker", "cp", f"{CONTAINER}:/tmp/workload-phases.log", os.path.join(a.out, "workload-phases.log")], capture_output=True)
-        sh(f"settings put global stay_on_while_plugged_in {old_stay or 0}")
-        log("environnement restauré")
+        try:
+            sh(f"settings put global stay_on_while_plugged_in {old_stay or 0}")
+            log("environnement restauré")
+        except SystemExit:
+            log("réglage « écran allumé » NON restauré (tablette injoignable) : le remettre à la main")
 
 
 if __name__ == "__main__":

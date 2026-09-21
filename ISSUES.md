@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-060/SS-062 ; SS-061 en cours). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-061). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -14,11 +14,11 @@ Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (derni
 | E3 — Rendu | 5/5 | 0 | 0 |
 | E4 — Entrées | 8/8 | 0 | 0 |
 | E5 — UX et profils | 6/6 | 0 | 0 |
-| E6 — Performance | 3/5 | 1 | 1 |
+| E6 — Performance | 4/5 | 0 | 1 |
 | E7 — Sécurité | 0/4 | 3 | 1 |
 | E8 — Tests et compatibilité | 4/8 | 2 | 2 |
 | E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **42/57** | **6** | **9** |
+| **Total** | **43/57** | **5** | **9** |
 
 ## Epic E0 — Initialisation
 
@@ -179,8 +179,8 @@ Backoff borné, désactivable. *(Fait : `ConnectionController` (boucle de reconn
 Mesures désactivables et peu coûteuses. *(Fait : package `perf/` (`PerfStats`, `TrafficCounter`, `PerfSampler`, `PerfSnapshot`), crochets dans `ServerMessageReader`, `RfbSocket`, `ConnectionController`, `RemoteSurfaceView`, bandeau + ligne de journal `SecondScreenPerf` (nombres seulement), case dans Diagnostic. **Désactivé par défaut** ; désactivé = une lecture de booléen par point de mesure. 26 tests, 3 mutations détectées, vérifié sur la tablette. **Limite : coût des mesures activées estimé à +4 points de CPU sur 3 séries seulement** (PERFORMANCE.md). Le temps de « décodage » inclut l'attente réseau. Voir PERFORMANCE.md.)*
 
 ### SS-061 — Mesurer allocations — P1
-**Statut : 🟡 Partiel** — session de 30 min faite ; **session de 2 h en cours** (lancée le 2026-09-21 à 08:37), résultats à ajouter.
-Session de référence de 30 min puis 2 h. *(En place : comptage d'allocations Dalvik dans `perf/` (thread de session, processus, thread UI ; tas Java et natif), `ThreadMeter` (interface, pas de lambda qui boxerait), `scripts/reference-server.sh`, `reference_session.py`, `analyze_session.py`. 30 min sur la GT-P5110 : chemin chaud de 0 à ~1,7 Ko/s, aucune croissance du tas après GC, du PSS, des threads, des descripteurs ni des objets d'interface. **Limites :** `Debug.getGlobalGcInvocationCount()` rend toujours 0 sur l'appareil (les ramasse-miettes sont lus dans le journal) ; charge synthétique, un seul appareil ; les allocations « de production » (mesures désactivées) ne sont pas mesurées directement. Voir PERFORMANCE.md.)*
+**Statut : ✅ Fait**
+Session de référence de 30 min puis 2 h. *(Fait : comptage d'allocations Dalvik dans `perf/` (thread de session, processus, thread UI ; tas Java et natif), `ThreadMeter` (interface, pas de lambda qui boxerait ; test « n'alloue rien »), `scripts/reference-server.sh`, `reference_session.py`, `analyze_session.py`. **30 min et 2 h sur la GT-P5110, 0 anomalie, résultats concordants** : le thread de session alloue de 0 à ~2 Ko/s (17 objets par mise à jour au pire, rien au repos), 0,7 ramasse-miettes/min, tas après GC plat (13 187 → 13 066 Ko), PSS 43,7 → 44,0 Mo, threads et descripteurs constants. **Limites :** charge synthétique, un appareil, un serveur, rendu 1:1 ; `Debug.getGlobalGcInvocationCount()` rend toujours 0 (ramasse-miettes lus dans le journal) ; l'allocation « de production » (mesures désactivées) n'est pas mesurée directement ; une première session de 2 h a été interrompue après 22 min quand la tablette a cessé de répondre (cause inconnue, peut-être la liaison USB) ; une fuite plus lente ou propre à un autre usage ne serait pas vue. Aucune optimisation déclenchée : rien ne la justifie. Voir PERFORMANCE.md.)*
 
 ### SS-062 — Réduire copies framebuffer — P1
 **Statut : ✅ Fait**

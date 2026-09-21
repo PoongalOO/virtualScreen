@@ -45,8 +45,8 @@ Sur GT-P5110 Android 4.2.2 :
 7. saisie clavier ;
 8. déconnexion/reconnexion ;
 9. rotation/retour application ;
-10. session 30 min ;
-11. session 2 h.
+10. session 30 min (SS-061 : `scripts/reference_session.py`, résultats dans PERFORMANCE.md) ;
+11. session 2 h (idem).
 
 ## Matrice PC
 

@@ -153,37 +153,60 @@ Mesuré sur la GT-P5110 : CPU **du processus entier** (`utime + stime` de `/proc
 
 ## Allocations (SS-061)
 
-Session de référence : `scripts/reference_session.py` (voir DEVELOPMENT.md). Charge serveur en boucle de cinq phases de 60 s (horloge, deux zones éparses à 20 mises à jour/s, terminal qui défile, fenêtres qui s'ouvrent et se ferment, repos), un toucher, un glissement, un texte ou une touche effacer toutes les 15 s, mesures activées, rendu 1:1, GT-P5110 Android 4.2.2, TigerVNC 1280×800 dans un conteneur, RAW/Hextile selon le serveur.
+Session de référence : `scripts/reference_session.py` (voir DEVELOPMENT.md). Charge serveur en boucle de cinq phases d'environ 60 s (horloge, deux zones éparses à ~19 mises à jour/s, terminal qui défile, fenêtres qui s'ouvrent et se ferment, repos), un toucher, un glissement, un texte ou une touche effacer toutes les 15 s, mesures activées, rendu 1:1, GT-P5110 Android 4.2.2, TigerVNC 1280×800 dans un conteneur sur le même Wi-Fi. Chaque mesure est attribuée à la phase **réellement en cours** (journal des changements de phase de la charge : le cycle dure ~2 s de plus que 5 × 60 s, soit 109 s de décalage après 24 cycles ; un découpage théorique aurait mélangé les phases).
 
-### Session de 30 min
+### Résultats : 30 min et 2 h
 
-1 742 lignes de mesure (une par seconde), **0 trou, 0 anomalie**, un seul processus (l'application n'a ni redémarré ni planté), 119 entrées envoyées.
+| Phase | mises à jour/s | objets/s, **thread de session** (30 min · 2 h) | **par mise à jour** (30 min · 2 h) | octets/s (30 min · 2 h) | objets/s, **processus entier** (2 h) | CPU % (2 h) |
+|---|---|---|---|---|---|---|
+| horloge | 1,2 | 0 · 0 | 0,2 · 0,2 | 14 · 14 | 414 | 2 |
+| deux zones éparses | 18,8 | 19 · 19 | 1,0 · 1,0 | 230 · 229 | 431 | 36 |
+| terminal qui défile | 9,7 | 163 · 168 | 17,3 · 17,3 | 1 956 · 2 023 | 588 | 83 |
+| fenêtres ouvertes/fermées | 1,1 | 5 · 3 | 3,7 · 2,8 | 63 · 43 | 415 | 7 |
+| repos | 0,2 | 0 · 0 | 0,0 · 0,0 | 3 · 3 | 412 | 1 |
+| **toutes** | 6,3 | 38 · 39 | 6,1 · 6,2 | 464 · 476 | 453 | 26 |
 
-| Phase | mises à jour/s | objets alloués/s par le **thread de session** | **par mise à jour** | octets/s | objets/s, **processus entier** | dont thread UI | CPU % |
-|---|---|---|---|---|---|---|---|
-| horloge | 1,1 | 0 | 0,2 | 12 | 416 | 384 | 2 |
-| deux zones éparses | 16,6 | 16 | 1,0 | 205 | 433 | 384 | 29 |
-| terminal qui défile | 10,7 | 143 | 13,4 | 1 727 | 564 | 388 | 75 |
-| fenêtres ouvertes/fermées | 2,4 | 28 | 11,8 | 343 | 444 | 385 | 19 |
-| repos | 0,4 | 0 | 0,3 | 4 | 415 | 384 | 1 |
-| **toutes** | 6,3 | 38 | 6,1 | 464 | 455 | 385 | 26 |
+- **Les deux sessions concordent** phase par phase : c'est la reproductibilité de la mesure.
+- **Session de 30 min** : 1 742 lignes de mesure, 0 trou, 0 anomalie. **Session de 2 h** (7 200 s, 479 entrées envoyées) : 7 032 lignes de mesure, **0 trou, 0 anomalie**, un seul processus du début à la fin (l'application n'a ni redémarré ni planté).
+- **Le chemin chaud (thread de session : lecture, décodage, rendu) alloue très peu** : au pire (terminal qui défile) ~2 Ko/s ; au repos **rien** (3 octets/s). C'est 17 objets par mise à jour dans le cas le plus chargé.
+- **L'essentiel des allocations est celui des mesures elles-mêmes** : ~382 objets/s et ~21 Ko/s sur le thread UI, à toute charge (texte du bandeau et ligne de journal, une fois par seconde). Avec les mesures désactivées, l'application alloue donc **moins que ce tableau**.
+- **Origine probable des allocations du thread de session** (lecture du code, **non vérifiée par une mesure dédiée**) : un objet `FramebufferUpdated` par mise à jour et un itérateur par rectangle (`decoderList.firstOrNull { … }` sur une `List`), cohérent avec ~1 objet par mise à jour pour les petites zones et ~17 pour les mises à jour à nombreux rectangles. Quelques objets de 16 à 24 octets par mise à jour : **aucune correction n'est justifiée par la mesure** (AGENTS.md : pas d'optimisation sans mesure qui la justifie).
 
-- **Le chemin chaud (thread de session : lecture, décodage, rendu) alloue très peu** : de 0 à ~1,7 Ko/s, y compris au pire (terminal qui défile). Au repos, il n'alloue **rien** (4 octets/s, l'objet du message de battement).
-- **L'essentiel des allocations est celui des mesures elles-mêmes** : ~385 objets/s et ~21 Ko/s sur le thread UI, à toute charge, sont le texte du bandeau et la ligne de journal, une fois par seconde. Avec les mesures désactivées, l'application alloue donc **moins que ce tableau** (voir la borne ci-dessous).
-- **Origine probable des allocations du thread de session** (lecture du code, **non vérifiée par une mesure dédiée**) : un objet `FramebufferUpdated` par mise à jour, et un itérateur par rectangle (`decoderList.firstOrNull { … }` sur une `List`). Cohérent avec ~1 objet par mise à jour dans « deux zones éparses » et ~12 à 13 pour les mises à jour à nombreux rectangles. Quelques objets de 16 à 24 octets par mise à jour : **aucune correction n'est justifiée par la mesure** (AGENTS.md).
-- **Ramasse-miettes** (journal Dalvik, 22 pour l'application en 30 min = **0,7/min**) : `GC_CONCURRENT`, ~1,9 Mo libérés chacun, 65 ms en moyenne (max 103 ms) dont l'essentiel en arrière-plan. Environ **24 Ko/s** libérés, c'est-à-dire l'allocation totale **avec** les mesures. La fréquence est la même dans toutes les phases, ce qui confirme que le bruit de fond dominant est celui du bandeau. `Debug.getGlobalGcInvocationCount()` rend **toujours 0** sur cet appareil (0 sur 1 774 s pour 22 collectes) : il n'est pas utilisé.
-- **Aucune fuite visible en 30 min** : le tas Java utilisé **après** ramasse-miettes est resté à 13 186 → 13 187 Ko (pente −2 Ko/h) ; PSS total 44,6 → 40,9 Mo (en baisse) ; threads 14 à 15 ; descripteurs de fichiers 56 constant ; `Views` 110, `Activities` 3, `ViewRootImpl` 2 à 3, contextes 5, tous constants. Aucune alerte de l'outil d'analyse.
+### Ramasse-miettes et tas (2 h)
 
-### Session de 2 h
+- **89 `GC_CONCURRENT` en 2 h = 0,7/min**, ~1,95 Mo libérés chacun, 60 ms en moyenne (max 110 ms), dont l'essentiel en arrière-plan ; ~**24 Ko/s** libérés, c'est-à-dire l'allocation totale **avec** les mesures. La fréquence est la même dans toutes les phases (bruit de fond dominé par le bandeau). Sur 30 min : 22 collectes, 24,0 Ko/s.
+- `Debug.getGlobalGcInvocationCount()` rend **toujours 0** sur cet appareil (0 sur 1 774 s pour 22 collectes) : il n'est pas utilisé, les ramasse-miettes sont lus dans le journal Dalvik.
+- **Tas Java après ramasse-miettes : 13 187 Ko au début, 13 066 Ko à la fin** (pente −92 Ko/h) : plat, et même en légère baisse. Plafond du tas atteint : 18,8 Mo.
 
-*Voir ci-dessous une fois terminée.*
+### Stabilité sur 2 h (6 fenêtres de 20 min)
+
+| Fenêtre | objets/mise à jour (thread de session) | objets/s (processus) | GC/min | tas après GC (Ko) | CPU % |
+|---|---|---|---|---|---|
+| 0–20 min | 6,1 | 452 | 0,7 | 13 188 | 26 |
+| 20–40 min | 5,9 | 452 | 0,8 | 13 188 | 26 |
+| 40–60 min | 6,1 | 453 | 0,8 | 13 188 | 27 |
+| 60–80 min | 6,3 | 454 | 0,8 | 13 068 | 26 |
+| 80–100 min | 6,3 | 455 | 0,8 | 13 068 | 27 |
+| 100–120 min | 6,4 | 453 | 0,8 | 13 068 | 26 |
+
+### Ressources du processus (`dumpsys meminfo`, toutes les 30 s, 2 h)
+
+- **PSS total 43,7 → 44,0 Mo** (min 43,1, max 45,9 ; +0,2 Mo/h), RSS 76,6 → 76,4 Mo : **plat**.
+- **Threads 14 à 15, descripteurs de fichiers 56 constant, `ViewRootImpl` 2 à 3, `Assets` 3, `Death Recipients` 0** : aucune croissance.
+- **Une baisse à 60 min exactement** : `Activities` 3 → 2, `Views` 110 → 71, contextes 5 → 4, avec −120 Ko sur le tas après GC au même instant. Cohérent avec le système qui détruit une activité arrêtée de la pile arrière (accueil ou connexion) ; **hypothèse non vérifiée**. C'est une baisse, pas une croissance : aucune alerte de l'outil d'analyse.
+- **Conclusion** : **aucune fuite visible en 2 h dans cette charge**. Une fuite plus lente ou déclenchée par un autre usage ne serait pas vue.
+
+### Tentative interrompue et instabilité de la liaison USB
+
+Une première session de 2 h (08:37) s'est arrêtée après **22 min** : la tablette a cessé de répondre à adb puis au ping, et a dû être redémarrée. Avant la coupure : dernière ligne de mesure normale, aucun message d'erreur ni de plantage dans le journal, un seul processus. Ces 22 min reproduisent les chiffres ci-dessus (5,5 objets/mise à jour, 0,7 GC/min, tas après GC 13 187 → 13 188 Ko). **La cause n'est pas identifiée** : elle est peut-être liée à la liaison USB, qui a aussi décroché pendant l'installation suivante (périphérique ré-énuméré) ; je ne peux ni l'attribuer à l'application ni l'exclure. La session de 2 h qui a suivi est allée à son terme sans incident.
 
 ### Limites
 
 - Un seul appareil, un seul serveur (conteneur sur le même réseau Wi-Fi), un seul profil de charge synthétique : ce n'est pas une session d'utilisation réelle (pas de vidéo, pas de saisie longue, pas de rotation, pas de mise en veille).
 - Les entrées viennent de `adb shell input` (un toucher ou un glissement à un doigt, du texte, une touche) : pas de geste à deux ou trois doigts, pas de mode touchpad.
 - Les chiffres d'allocation sont ceux de Dalvik (`Debug.getThreadAllocCount`, etc.) : objets et octets demandés, pas la mémoire résidente.
-- Le bandeau et le comptage des allocations font partie de ce qui est mesuré ; l'allocation « de production » (mesures désactivées) n'a pas été mesurée directement.
+- Le bandeau et le comptage des allocations font partie de ce qui est mesuré ; l'allocation « de production » (mesures désactivées) n'a pas été mesurée directement (seul le coût CPU l'a été, voir plus haut).
+- Rendu 1:1 uniquement ; le rendu ajusté (`--fit`) n'a pas été mesuré sur 2 h.
 
 ## Mesures avant optimisation
 
