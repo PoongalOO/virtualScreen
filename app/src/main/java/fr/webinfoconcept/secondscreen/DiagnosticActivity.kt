@@ -3,8 +3,11 @@ package fr.webinfoconcept.secondscreen
 import android.app.Activity
 import android.os.Bundle
 import android.widget.CheckBox
+import android.widget.RadioGroup
 import android.widget.TextView
 import fr.webinfoconcept.secondscreen.profile.PreferencesStore
+import fr.webinfoconcept.secondscreen.rfb.protocol.EncodingMode
+import fr.webinfoconcept.secondscreen.settings.ConnectionSettings
 import fr.webinfoconcept.secondscreen.settings.DisplaySettings
 import fr.webinfoconcept.secondscreen.diagnostic.DiagnosticInfo
 import fr.webinfoconcept.secondscreen.diagnostic.formatMebibytes
@@ -53,6 +56,22 @@ class DiagnosticActivity : Activity() {
         perf.setOnCheckedChangeListener { _, checked ->
             settings.showPerformance = checked
             SessionManager.perf.enabled = checked
+        }
+
+        // Encodage demandé au serveur (SS-063) : mémorisé, appliqué à la prochaine connexion.
+        val connection = ConnectionSettings(PreferencesStore(this, ConnectionSettings.FILE_NAME))
+        val group = findViewById<RadioGroup>(R.id.group_encoding)
+        group.check(when (connection.encodingMode) {
+            EncodingMode.AUTO -> R.id.encoding_auto
+            EncodingMode.HEXTILE -> R.id.encoding_hextile
+            EncodingMode.RAW -> R.id.encoding_raw
+        })
+        group.setOnCheckedChangeListener { _, id ->
+            connection.encodingMode = when (id) {
+                R.id.encoding_hextile -> EncodingMode.HEXTILE
+                R.id.encoding_raw -> EncodingMode.RAW
+                else -> EncodingMode.AUTO
+            }
         }
     }
 }

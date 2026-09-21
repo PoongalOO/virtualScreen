@@ -107,5 +107,46 @@
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
 
+        <!-- Encodage demandé au serveur (SS-063) : pour comparer RAW et Hextile, pas un réglage courant. -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/diagnostic_encoding_label"
+            android:textAllCaps="true"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <RadioGroup
+            android:id="@+id/group_encoding"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <RadioButton
+                android:id="@+id/encoding_auto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_encoding_auto" />
+
+            <RadioButton
+                android:id="@+id/encoding_hextile"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_encoding_hextile" />
+
+            <RadioButton
+                android:id="@+id/encoding_raw"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_encoding_raw" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/diagnostic_encoding_note"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
     </LinearLayout>
 </ScrollView>

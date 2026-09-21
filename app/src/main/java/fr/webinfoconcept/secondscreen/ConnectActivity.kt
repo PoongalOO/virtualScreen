@@ -140,7 +140,7 @@ class ConnectActivity : Activity(), ConnectionController.Listener {
 
         // Le mot de passe quitte le champ avant tout le reste : copié, puis le champ est vidé.
         val secret = takePassword()
-        val params = ConnectionParams(form.host!!, form.port!!)
+        val params = ConnectionParams(form.host!!, form.port!!, encodingMode = settings.encodingMode)
         settings.autoReconnect = auto.isChecked
         // Avec la reconnexion automatique une copie du mot de passe reste en mémoire jusqu'à la fin de la session (SECURITY.md).
         if (!controller.connect(params, secret, autoReconnect = auto.isChecked)) { // a effacé `secret`

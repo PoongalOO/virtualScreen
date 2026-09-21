@@ -14,7 +14,7 @@ case "${1:-}" in
     BIND=${2:-$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')}
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     docker run -d --name "$NAME" --memory 1g --cpus 2 -p "$BIND:$PORT:5900" --entrypoint sleep "$BASE_IMAGE" infinity >/dev/null
-    docker exec "$NAME" sh -c 'apt-get update -qq >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends tigervnc-standalone-server x11-utils xterm >/dev/null 2>&1; which Xtigervnc xterm >/dev/null'
+    docker exec "$NAME" sh -c 'apt-get update -qq >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends tigervnc-standalone-server x11-utils x11-xserver-utils xterm feh >/dev/null 2>&1; which Xtigervnc xterm xsetroot feh >/dev/null'
     docker cp "$HERE/reference-workload.sh" "$NAME:/tmp/workload.sh"
     docker exec -d "$NAME" sh -c 'Xtigervnc :1 -geometry 1280x800 -depth 24 -rfbport 5900 -SecurityTypes None -AlwaysShared -interface 0.0.0.0 > /tmp/xvnc.log 2>&1'
     sleep 3

@@ -3,6 +3,7 @@ package fr.webinfoconcept.secondscreen.session
 import fr.webinfoconcept.secondscreen.render.RenderTarget
 import fr.webinfoconcept.secondscreen.rfb.protocol.ClientMessages
 import fr.webinfoconcept.secondscreen.rfb.protocol.Encoding
+import fr.webinfoconcept.secondscreen.rfb.protocol.EncodingMode
 import fr.webinfoconcept.secondscreen.rfb.protocol.RectangleListener
 import fr.webinfoconcept.secondscreen.rfb.protocol.RfbVersion
 import fr.webinfoconcept.secondscreen.rfb.protocol.SecurityType
@@ -148,6 +149,26 @@ class ConnectionControllerTest {
         assertEquals(Encoding.ADVERTISED, got.encodings)
         assertArrayEquals(ClientMessages.framebufferUpdateRequest(false, 0, 0, 64, 48), got.firstRequest)
         assertTrue(rec.await(ConnectionState.CONNECTED))
+    }
+
+    @Test(timeout = 30_000)
+    fun `the server receives exactly the encodings of the chosen mode (SS-063)`() {
+        for (mode in EncodingMode.values()) {
+            val setup = java.util.concurrent.atomic.AtomicReference<fr.webinfoconcept.secondscreen.rfb.testutil.ClientSetup>()
+            val s = server { it.apply { setup.set(standardHandshake(64, 48)); Thread.sleep(1_000) } }
+            val c = controller()
+
+            c.connect(ConnectionParams("127.0.0.1", s.port, encodingMode = mode))
+            assertTrue(mode.name, awaitTrue { setup.get() != null })
+
+            assertEquals(mode.name, mode.encodings, setup.get().encodings)
+            c.disconnect()
+        }
+    }
+
+    @Test
+    fun `connection parameters ask for the automatic mode unless told otherwise`() {
+        assertEquals(EncodingMode.AUTO, ConnectionParams("127.0.0.1", 5900).encodingMode)
     }
 
     @Test(timeout = 20_000)

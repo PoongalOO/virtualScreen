@@ -1,5 +1,7 @@
 package fr.webinfoconcept.secondscreen.session
 
+import fr.webinfoconcept.secondscreen.rfb.protocol.EncodingMode
+
 /**
  * Où se connecter. **Ne contient jamais de mot de passe** : il est passé à part, en `CharArray`, à
  * [ConnectionController.connect], qui l'efface (SECURITY.md).
@@ -7,8 +9,14 @@ package fr.webinfoconcept.secondscreen.session
  * @param host adresse IPv4 ou nom d'hôte (voir [isValidHost]).
  * @param port 1..65535 (5900 par défaut).
  * @param shared session partagée : ne déconnecte pas les autres clients du serveur.
+ * @param encodingMode encodages annoncés au serveur ([EncodingMode.AUTO] sauf pour comparer les encodages, SS-063).
  */
-data class ConnectionParams(val host: String, val port: Int = DEFAULT_PORT, val shared: Boolean = true) {
+data class ConnectionParams(
+    val host: String,
+    val port: Int = DEFAULT_PORT,
+    val shared: Boolean = true,
+    val encodingMode: EncodingMode = EncodingMode.AUTO
+) {
     init {
         require(isValidHost(host)) { "hôte invalide" }
         require(port in 1..65535) { "port hors de 1..65535 : $port" }

@@ -14,11 +14,11 @@ Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (derni
 | E3 — Rendu | 5/5 | 0 | 0 |
 | E4 — Entrées | 8/8 | 0 | 0 |
 | E5 — UX et profils | 6/6 | 0 | 0 |
-| E6 — Performance | 4/5 | 0 | 1 |
+| E6 — Performance | 5/5 | 0 | 0 |
 | E7 — Sécurité | 0/4 | 3 | 1 |
 | E8 — Tests et compatibilité | 4/8 | 2 | 2 |
 | E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **43/57** | **5** | **9** |
+| **Total** | **44/57** | **5** | **8** |
 
 ## Epic E0 — Initialisation
 
@@ -187,8 +187,8 @@ Session de référence de 30 min puis 2 h. *(Fait : comptage d'allocations Dalvi
 Objectif : aucune copie plein écran inutile par update. *(Fait : `DirtyRegion` garde jusqu'à 8 rectangles distincts, `RemoteSurfaceView.copyIntoBitmap` ne copie que ceux-là, la boîte englobante restant seule redessinée. Mesuré sur la GT-P5110 : copie 22,4 → 0,2 ms par rendu pour des zones éparses ; aucun gain ni perte pour une grande zone ; 0 copie plein écran. Image identique au pixel près (client RFB indépendant), mutation détectée. **Limites** : le coût de dessin (~20 ms, fixe) devient le plafond (~50 rendus/s) et n'a pas baissé ; la baisse de CPU est indicative ; regrouper les mises à jour n'a pas été fait faute de mesure qui le justifie. Voir PERFORMANCE.md.)*
 
 ### SS-063 — Benchmark RAW vs Hextile — P2
-**Statut : ⬜ À faire** — RAW et Hextile sont implémentés, mais aucune mesure comparative sur la tablette n'a été faite.
-Mesurer CPU, réseau, FPS et latence sur GT-P5110 réelle.
+**Statut : ✅ Fait**
+Mesurer CPU, réseau, FPS et latence sur GT-P5110 réelle. *(Fait : `EncodingMode` (auto / hextile / raw) choisi dans Diagnostic, porté par `ConnectionParams`, envoyé dans `SetEncodings` (13 tests, 2 mutations détectées) ; encodage réellement utilisé dans le journal des mesures (`enc=`) ; `scripts/benchmark_encodings.py` (2 passes entrelacées, reprenable) et `analyze_benchmark.py`. **6 sessions sur la GT-P5110, sans anomalie, passes concordantes.** Résultat : Hextile gagne partout sauf sur un contenu incompressible (égalité) ; défilement de terminal ×5 en mises à jour/s (RAW limité par le réseau à ~3,85 Mo/s), écran entier uni affiché en 91 ms au lieu de 987 ms ; avec Hextile le défilement devient limité par le processeur (thread de session 84 à 87 %). L'encodage automatique reste le défaut. **Limites :** un appareil, un Wi-Fi, un serveur, charges synthétiques, n = 2 par encodage ; CPU du thread de session seulement ; latence côté tablette, pas de bout en bout ; CopyRect non isolé ; réactivité du toucher pendant le défilement non mesurée. Voir PERFORMANCE.md.)*
 
 ### SS-064 — Supprimer la latence de réveil Wi-Fi — P1
 **Statut : ✅ Fait** — Branché sur la connexion réelle dans `ConnectionController` (via SS-054).

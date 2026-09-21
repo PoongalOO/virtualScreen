@@ -25,6 +25,7 @@ import fr.webinfoconcept.secondscreen.input.PointerPosition
 import fr.webinfoconcept.secondscreen.input.TouchpadActions
 import fr.webinfoconcept.secondscreen.input.TouchInput
 import fr.webinfoconcept.secondscreen.perf.AndroidMemoryProbe
+import fr.webinfoconcept.secondscreen.rfb.protocol.EncodingMode
 import fr.webinfoconcept.secondscreen.perf.PerfSampler
 import fr.webinfoconcept.secondscreen.perf.PerfSnapshot
 import fr.webinfoconcept.secondscreen.profile.PreferencesStore
@@ -515,12 +516,13 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
     }
 
     private fun perfLogLine(p: PerfSnapshot): String =
-        "maj/s=%.1f rendus/s=%.1f mpx/s=%.2f rx_ko/s=%d tx_ko/s=%d decod_ms=%.1f(max %.1f) rendu_ms=%.1f copie_ms=%.1f dessin_ms=%.1f(max %.1f) kpx_copies=%d plein_ecran=%d rendus_complets=%d cpu=%d tas_ko=%d natif_ko=%d alloc/s=%d alloc_ko/s=%d sess_alloc/s=%d sess_alloc_o/s=%d sess_alloc/maj=%.1f ui_alloc/s=%d".format(
+        "maj/s=%.1f rendus/s=%.1f mpx/s=%.2f rx_ko/s=%d tx_ko/s=%d decod_ms=%.1f(max %.1f) rendu_ms=%.1f copie_ms=%.1f dessin_ms=%.1f(max %.1f) kpx_copies=%d plein_ecran=%d rendus_complets=%d cpu=%d tas_ko=%d natif_ko=%d alloc/s=%d alloc_ko/s=%d sess_alloc/s=%d sess_alloc_o/s=%d sess_alloc/maj=%.1f ui_alloc/s=%d enc=%s".format(
             java.util.Locale.US, p.updatesPerSecond, p.rendersPerSecond, p.megapixelsPerSecond, p.bytesReceivedPerSecond / 1024,
             p.bytesSentPerSecond / 1024, p.decodeAvgMs, p.decodeMaxMs, p.renderAvgMs, p.copyAvgMs, p.drawAvgMs, p.renderMaxMs,
             p.copiedPixelsPerRender / 1000, p.fullScreenCopies, p.fullRedraws, p.cpuPercent, p.heapUsedKb, p.nativeHeapKb,
             p.allocsPerSecond, p.allocBytesPerSecond / 1024, p.sessionAllocsPerSecond, p.sessionAllocBytesPerSecond,
-            p.sessionAllocsPerUpdate, p.uiAllocsPerSecond
+            p.sessionAllocsPerUpdate, p.uiAllocsPerSecond,
+            (controller.lastConnection?.encodingMode ?: EncodingMode.AUTO).key // encodage réellement demandé à cette session
         )
 
     /** Met à jour le compte à rebours de la reconnexion automatique, une fois par seconde. */

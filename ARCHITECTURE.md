@@ -416,6 +416,10 @@ MotionEvent -> TouchInput ─┬─ TouchGestureDetector (direct)  ─► Pointe
 
 **Non vérifié** : l'effet à la main sur une durée d'usage (confort, choix du défaut de 1,5×, absence d'accélération) ; un serveur qui ne dessine pas le pointeur (Windows) ; un tap-glisser à la main plus lent que l'injection (le délai de double tap est celui d'Android, 300 ms, non réglable) ; le mode touchpad avec le mode plein écran (le premier toucher après inactivité y est perdu, comme en mode direct).
 
+## Choix de l'encodage (SS-063)
+
+`rfb/protocol/EncodingMode` (`AUTO` = Hextile, CopyRect, RAW ; `HEXTILE` = Hextile, RAW ; `RAW`) est porté par `ConnectionParams`, choisi dans Diagnostic (`ConnectionSettings.encodingMode`) et envoyé dans `SetEncodings` à la connexion. Par défaut `AUTO`. Il existe pour **mesurer** un encodage isolé (`scripts/benchmark_encodings.py`), pas pour un usage courant. L'encodage réellement demandé figure dans la ligne de journal des mesures (`enc=`), pour qu'une mesure ne puisse pas être attribuée au mauvais encodage.
+
 ## Réseau (SS-064)
 
 `net/KeepAlive` envoie un message toutes les 100 ms sur un thread démon dédié pour que la liaison Wi-Fi ne devienne jamais silencieuse : sinon la radio de la tablette s'endort et la latence d'un paquet entrant atteint ~1,9 s (mesures dans PERFORMANCE.md). Le battement est un `FramebufferUpdateRequest` incrémental d'un pixel. Il s'arrête de lui-même si l'envoi échoue. Le `ConnectionController` (SS-054) le démarre avec chaque session et l'arrête à sa fin ; il y ajoute le signe de vie (voir « Connexion et session »).

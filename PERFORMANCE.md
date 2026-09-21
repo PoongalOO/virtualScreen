@@ -208,9 +208,62 @@ Une première session de 2 h (08:37) s'est arrêtée après **22 min** : la tabl
 - Le bandeau et le comptage des allocations font partie de ce qui est mesuré ; l'allocation « de production » (mesures désactivées) n'a pas été mesurée directement (seul le coût CPU l'a été, voir plus haut).
 - Rendu 1:1 uniquement ; le rendu ajusté (`--fit`) n'a pas été mesuré sur 2 h.
 
+## Benchmark RAW / Hextile / automatique (SS-063)
+
+Mesuré sur la GT-P5110 (Android 4.2.2) avec `scripts/benchmark_encodings.py` (voir DEVELOPMENT.md) : trois encodages demandés au serveur, **RAW seul**, **Hextile puis RAW** (sans CopyRect) et **automatique** (Hextile, CopyRect, RAW), chacun **2 fois** (deux passes entrelacées : raw, hextile, auto, raw, hextile, auto), 11 min par session, 7 phases de charge de 45 s répétées 2 fois. TigerVNC 1280×800 dans un conteneur sur le PC, Wi-Fi 2,4 GHz, rendu 1:1, mesures activées (bandeau et journal) dans toutes les sessions, aucune entrée tactile. Les 6 sessions sont complètes, sans anomalie ; les deux passes d'un même encodage sont proches (plages étroites, voir l'analyse). Le début de chaque phase (6 s) est ignoré : il contient la fin de la précédente (un écran de 4 Mo en RAW met plus d'une seconde à arriver).
+
+### Résultats par phase (moyenne des 2 sessions de chaque encodage)
+
+| Phase | Encodage | Mises à jour/s | Réseau Ko/s | Ko par mise à jour | Décodage ms | CPU % (thread de session) | Écran complet : décodage + rendu, médiane / max ms |
+|---|---|---|---|---|---|---|---|
+| **horloge** (petite zone, 1/s) | RAW | 1,2 | 3 | 2,6 | 1,5 | 2 | — |
+| | Hextile | 1,2 | 0 | 0,0 | 1,1 | 2 | — |
+| | Auto | 1,2 | 0 | 0,0 | 0,9 | 2 | — |
+| **deux zones éparses** (20/s) | RAW | 19,8 | 34 | 1,7 | 0,6 | 39 | — |
+| | Hextile | 19,0 | 21 | 1,1 | 0,9 | 38 | — |
+| | Auto | 18,9 | 21 | 1,1 | 0,9 | 38 | — |
+| **terminal qui défile** | RAW | **1,9** | **3 853** | 2 007 | 483 | 35 | 532 / 749 |
+| | Hextile | **10,1** | 2 664 | 263 | 71 | 87 | 103 / 188 |
+| | Auto | **11,0** | 2 582 | 236 | 64 | 84 | 94 / 208 |
+| **grandes fenêtres ouvertes/fermées** | RAW | 1,0 | 2 353 | 2 357 | 660 | 21 | 774 / 1 183 |
+| | Hextile | 1,0 | 3 | 2,8 | 40 | 6 | 78 / 104 |
+| | Auto | 0,9 | 3 | 2,8 | 39 | 6 | 82 / 109 |
+| **écran entier, aplat de couleur** | RAW | 0,6 | 1 331 | 2 410 | 677 | 12 | **987 / 1 439** |
+| | Hextile | 0,5 | 2 | 3,1 | 37 | 3 | **91 / 119** |
+| | Auto | 0,5 | 2 | 3,1 | 36 | 3 | **89 / 113** |
+| **écran entier, bruit incompressible** | RAW | 0,5 | 1 323 | 2 441 | 639 | 11 | 1 001 / 1 499 |
+| | Hextile | 0,5 | 1 300 | 2 414 | 603 | 13 | 921 / 1 349 |
+| | Auto | 0,5 | 1 310 | 2 446 | 581 | 12 | 902 / 1 378 |
+| **repos** | tous | 0,2 | 0 | 0,0 | 0,2 | 0 | — |
+
+Rapport à RAW (Hextile · Auto) : terminal qui défile — octets par mise à jour ×0,13 · ×0,12, décodage ×0,15 · ×0,13, mises à jour/s **×5,3 · ×5,7**, latence d'un écran ×0,19 · ×0,18 ; grandes fenêtres — octets ×0,001, décodage ×0,06, latence ×0,10 · ×0,11 ; écran entier uni — octets ×0,001, décodage ×0,05, latence **×0,09** ; bruit — octets ×0,99 · ×1,00, décodage ×0,94 · ×0,91, latence ×0,92 · ×0,90 ; petites zones — octets ×0,63 pour les deux zones éparses, décodage ×1,6 (0,6 → 0,9 ms).
+
+### Ce que montrent ces mesures
+
+- **Sur ce Wi-Fi, RAW est limité par le réseau** : pendant le défilement il reçoit **3,85 Mo/s** (le plafond observé de la liaison) et ne fait que **1,9 mise à jour/s** ; le processeur de la tablette est alors peu chargé (35 %). Un écran entier en RAW met **~1 s** à arriver et s'afficher (987 ms), soit ~1,5 s au pire.
+- **Hextile lève ce plafond pour du contenu de bureau** : le même défilement passe à **10 mises à jour/s** (×5) avec 13 % des octets par mise à jour ; un écran entier uni arrive et s'affiche en **91 ms** au lieu de 987 ms (**×11**) ; les grandes fenêtres ouvertes/fermées passent de 2,4 Mo à 3 Ko par mise à jour. Ces chiffres confirment ceux de la sonde initiale de SS-025/026 (~90 ms contre ~1 700 ms).
+- **Avec Hextile, le défilement devient limité par le processeur, pas par le réseau** : le thread de session monte à **84 à 87 %** d'un cœur (décodage 71 ms + rendu 27 ms par mise à jour). Le décodage d'Hextile coûte ~0,15 fois celui de RAW *par mise à jour*, mais la tablette en traite cinq fois plus par seconde. Sur une tablette à deux cœurs, cela laisse peu de marge au reste ; **non mesuré ici** : l'effet sur la réactivité du toucher pendant ce défilement.
+- **Le pire cas d'Hextile est un contenu incompressible** (bruit, photo, vidéo) : ni gain ni perte d'octets (×0,99), le décodage et la latence sont même un peu meilleurs (×0,94, ×0,92 ; cause non établie, à l'écart des variations entre passes). Dans ce cas **le réseau limite** (~1,3 Mo/s pour ~0,5 écran/s, environ 1 s par écran) : ni RAW ni Hextile ne permettent de la vidéo plein écran sur ce Wi-Fi.
+- **Petites zones : RAW et Hextile sont équivalents** : ~19 mises à jour/s et 38 à 39 % de CPU dans les deux cas ; Hextile coûte ~0,3 ms de décodage de plus par mise à jour et ~37 % d'octets en moins. Le coût dominant est le rendu (~20 ms par image), pas le décodage.
+- **CopyRect n'apporte que ~10 % sur ce défilement** (263 → 236 Ko et 71 → 64 ms par mise à jour, 10,1 → 11,0 mises à jour/s) : le terminal de test redessine surtout du texte au lieu de copier une zone. Il n'est **pas** isolé sur un déplacement de fenêtre ; le gain sur d'autres charges n'est pas mesuré.
+- **Conclusion pratique : l'encodage automatique (Hextile, CopyRect, RAW) reste le bon défaut.** Aucun cas mesuré où RAW seul est meilleur, sauf ~0,3 ms de décodage par petite mise à jour ; RAW seul sature le Wi-Fi dès qu'un grand rectangle change.
+
+### Comment lire « latence »
+
+« Écran complet : décodage + rendu » est, pour les secondes où au moins ~0,3 Mpx ont été décodés, le temps moyen de **réception du corps du message + décodage** puis de **rendu**. C'est une latence **côté tablette**, à partir de l'arrivée du début du message. Elle **n'inclut pas** le temps que met le serveur à encoder ni l'envoi de l'en-tête, et n'est **pas** la latence de bout en bout d'une saisie (toucher → pixel), qui n'a pas été mesurée. Une mise à jour plus longue qu'une seconde est attribuée à la seconde où elle se termine.
+
+### Limites
+
+- Un appareil, un Wi-Fi 2,4 GHz, un serveur (TigerVNC) : un autre serveur (x11vnc, Windows) choisit et compresse autrement. Charges synthétiques (texte de terminal, fenêtres unies, bruit) : ni photo réelle, ni vidéo, ni application graphique.
+- **n = 2 sessions par encodage** : les plages entre passes sont indiquées dans l'analyse (`analyze_benchmark.py`) et restent étroites, mais ce n'est pas une étude statistique.
+- CPU = **thread de session seulement** (lecture, décodage, rendu) ; le thread d'interface, le système et la consommation de batterie ne sont pas mesurés. Le CPU du serveur, sur le même PC, non plus.
+- Conditions : tablette sur chargeur secteur, luminosité baissée, adb par **Wi-Fi** (~250 octets/s de journal en plus, identique pour tous les encodages), bandeau de mesures actif dans toutes les sessions (coût constant, environ +4 points de CPU d'un cœur, voir « Coût des mesures »).
+- Hors périmètre : Tight, ZRLE et les autres encodages ne sont pas implémentés. Un encodage plus compact que Hextile pourrait aider pour le bruit et le défilement, mais les mesures ci-dessus ne montrent pas que RAW/Hextile limitent l'usage courant (RFB_SPEC.md).
+- **Incident** : deux sessions précédentes avaient été interrompues parce que la batterie de la tablette s'était vidée sur l'USB du PC (extinction en cours de mesure). Elles ont été mises de côté (`.incomplete`) et refaites sur chargeur secteur.
+
 ## Mesures avant optimisation
 
-Toujours mesurer RAW avant d'implémenter un encodage plus complexe. Hextile économise potentiellement du réseau mais consomme du CPU. Le meilleur compromis doit être établi sur la tablette réelle.
+Toujours mesurer RAW avant d'implémenter un encodage plus complexe. Hextile économise du réseau mais consomme du CPU : c'est mesuré sur la tablette réelle dans « Benchmark RAW / Hextile / automatique » ci-dessus (Hextile gagne partout sauf sur un contenu incompressible, où il est à égalité, et il rend le défilement limité par le processeur).
 
 ## Anti-patterns
 

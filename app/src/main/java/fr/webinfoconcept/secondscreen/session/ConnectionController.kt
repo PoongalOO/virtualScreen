@@ -7,6 +7,7 @@ import fr.webinfoconcept.secondscreen.perf.PerfStats
 import fr.webinfoconcept.secondscreen.render.RenderTarget
 import fr.webinfoconcept.secondscreen.rfb.framebuffer.Framebuffer
 import fr.webinfoconcept.secondscreen.rfb.protocol.ClientMessages
+import fr.webinfoconcept.secondscreen.rfb.protocol.EncodingMode
 import fr.webinfoconcept.secondscreen.rfb.protocol.InitExchange
 import fr.webinfoconcept.secondscreen.rfb.protocol.NoneSecurity
 import fr.webinfoconcept.secondscreen.rfb.protocol.PixelFormat
@@ -479,7 +480,7 @@ class ConnectionController(
             val server = InitExchange.perform(socket, params.shared)
 
             val framebuffer = Framebuffer(server.width, server.height)
-            sendSetup(socket, framebuffer)
+            sendSetup(socket, framebuffer, params.encodingMode)
             socket.setReadTimeout(config.readTimeoutMs)
 
             val info = SessionInfo(version, security.type, server, framebuffer)
@@ -513,10 +514,10 @@ class ConnectionController(
     }
 
     /** Envoie la configuration de la session : format de pixels imposé, encodages, première image complète. */
-    private fun sendSetup(socket: RfbSocket, framebuffer: Framebuffer) {
+    private fun sendSetup(socket: RfbSocket, framebuffer: Framebuffer, encodingMode: EncodingMode) {
         for (message in listOf(
             ClientMessages.setPixelFormat(PixelFormat.XRGB_8888_LE),
-            ClientMessages.setEncodings(),
+            ClientMessages.setEncodings(encodingMode.encodings),
             ClientMessages.framebufferUpdateRequest(false, 0, 0, framebuffer.width, framebuffer.height)
         )) {
             socket.write(message, 0, message.size)

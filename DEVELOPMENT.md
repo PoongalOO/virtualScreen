@@ -49,6 +49,21 @@ feat(rfb): implement protocol version negotiation (SS-011)
 
 Toute PR protocolaire doit vérifier : bounds, fragmentation TCP, endianness, fermeture des ressources, absence d'allocation non bornée et tests associés.
 
+## Benchmark d'encodages (SS-063)
+
+Compare RAW, Hextile (sans CopyRect) et l'encodage automatique sur la tablette réelle : débit réseau, mises à jour et images par seconde, temps de décodage et de rendu, CPU du thread de session, latence d'un écran complet. Même charge serveur que la session de référence, plus deux phases d'écran complet (`flash` : aplat de couleur ; `noise` : bruit incompressible), **sans entrées tactiles ni échantillons `meminfo`** (ils coûteraient du processeur pendant la mesure). Deux passes entrelacées (raw, hextile, auto, raw, hextile, auto) pour que les variations du Wi-Fi n'avantagent pas toujours le même encodage.
+
+```bash
+scripts/reference-server.sh up                # ajoute feh et xsetroot (phases flash et noise)
+python3 scripts/benchmark_encodings.py --out /chemin/bench --host <ip-lan-du-pc>   # ~75 min
+python3 scripts/analyze_benchmark.py /chemin/bench
+scripts/reference-server.sh down
+```
+
+**Batterie** : une tablette écran allumé se décharge même branchée sur l'USB d'un PC (mesuré : +10 %/h écran éteint, décharge écran allumé) et s'éteint en cours de mesure. Le câble de la tablette sert aussi au chargeur : pour mesurer **sur chargeur secteur**, activer adb par Wi-Fi tant que l'USB est branché (`adb tcpip 5555`), puis débrancher l'USB, brancher le secteur et donner `--adb-connect <ip>:5555` aux scripts (adb par Wi-Fi ajoute environ 250 octets/s de journal au trafic, identique pour tous les encodages).
+
+**Ne pas lancer de compilation ni de test sur le PC pendant la mesure** : le serveur tourne dans un conteneur sur le même PC et perdrait du processeur.
+
 ## Session de référence (SS-061)
 
 Mesure les allocations et détecte une fuite sur la tablette réelle, contre une charge serveur variée (horloge, deux zones éparses, terminal qui défile, fenêtres qui s'ouvrent et se ferment, repos ; 60 s par phase, en boucle) avec des entrées tactiles et clavier toutes les 15 s. Prérequis : la tablette en USB (`adb`), l'APK debug installé, `docker`, Python 3.

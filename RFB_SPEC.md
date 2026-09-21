@@ -140,6 +140,8 @@ Un `RectangleListener` optionnel est notifié après chaque rectangle décodé (
 
 **Règle : un encodage n'est annoncé (`Encoding.ADVERTISED`) que lorsque son décodeur existe et est testé.** Annoncer un encodage non décodable ferait envoyer au serveur des rectangles que le client ne sait pas lire, ce qui coupe la connexion. Les encodages compacts (Hextile, CopyRect) se placent en tête de liste, RAW en dernier : un serveur choisit le premier qu'il sait produire. Ajouter un encodage à `Encoding.ADVERTISED` exige d'enregistrer son décodeur dans `ServerMessageReader.defaultDecoders` ; un test vérifie que tout ce qui est annoncé est décodable. La liste ne peut être ni vide ni contenir de doublon, et est limitée à 64 entrées.
 
+**Choix de l'encodage (SS-063).** Le réglage normal est `EncodingMode.AUTO` (la liste ci-dessus). Pour **comparer** les encodages sur l'appareil, Diagnostic propose aussi `HEXTILE` (Hextile puis RAW, sans CopyRect : un défilement est alors envoyé en pixels) et `RAW` (RAW seul). Toutes les listes finissent par RAW, que tout serveur sait envoyer, et ne contiennent que des encodages décodables (un test le vérifie pour chaque mode). Le réglage (`ConnectionSettings.encodingMode`, chaîne `auto` / `hextile` / `raw`, valeur inconnue = `auto`) est lu à la connexion, porté par `ConnectionParams.encodingMode` et envoyé par `ConnectionController.sendSetup`. Il n'est pas un réglage d'usage : RAW seul sature le Wi-Fi (voir PERFORMANCE.md).
+
 ### RAW — P0
 
 Premier encodage. Valider : coordonnées, largeur, hauteur, bytes-per-pixel et taille calculée avant lecture/allocation.
