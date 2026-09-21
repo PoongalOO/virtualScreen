@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-20 d'après le code, les tests et l'historique git (dernier commit : SS-060/SS-062). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-060/SS-062 ; SS-061 en cours). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -14,11 +14,11 @@ Mis à jour le 2026-09-20 d'après le code, les tests et l'historique git (derni
 | E3 — Rendu | 5/5 | 0 | 0 |
 | E4 — Entrées | 8/8 | 0 | 0 |
 | E5 — UX et profils | 6/6 | 0 | 0 |
-| E6 — Performance | 3/5 | 0 | 2 |
+| E6 — Performance | 3/5 | 1 | 1 |
 | E7 — Sécurité | 0/4 | 3 | 1 |
 | E8 — Tests et compatibilité | 4/8 | 2 | 2 |
 | E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **42/57** | **5** | **10** |
+| **Total** | **42/57** | **6** | **9** |
 
 ## Epic E0 — Initialisation
 
@@ -175,12 +175,12 @@ Backoff borné, désactivable. *(Fait : `ConnectionController` (boucle de reconn
 ## Epic E6 — Performance
 
 ### SS-060 — Instrumenter FPS et débit — P1
-**Statut : ✅ Fait** — Coût des mesures activées non chiffré (voir la note).
-Mesures désactivables et peu coûteuses. *(Fait : package `perf/` (`PerfStats`, `TrafficCounter`, `PerfSampler`, `PerfSnapshot`), crochets dans `ServerMessageReader`, `RfbSocket`, `ConnectionController`, `RemoteSurfaceView`, bandeau + ligne de journal `SecondScreenPerf` (nombres seulement), case dans Diagnostic. **Désactivé par défaut** ; désactivé = une lecture de booléen par point de mesure. 26 tests, 3 mutations détectées, vérifié sur la tablette. **Limite : le coût des mesures activées n'a pas pu être chiffré** (bruit d'exécution supérieur à l'effet). Le temps de « décodage » inclut l'attente réseau. Voir PERFORMANCE.md.)*
+**Statut : ✅ Fait** — Coût des mesures activées : environ +4 points de CPU (46,0 % contre 41,9 % d'un cœur, 3 mesures chacune, plages qui se recouvrent) sur une charge fixe.
+Mesures désactivables et peu coûteuses. *(Fait : package `perf/` (`PerfStats`, `TrafficCounter`, `PerfSampler`, `PerfSnapshot`), crochets dans `ServerMessageReader`, `RfbSocket`, `ConnectionController`, `RemoteSurfaceView`, bandeau + ligne de journal `SecondScreenPerf` (nombres seulement), case dans Diagnostic. **Désactivé par défaut** ; désactivé = une lecture de booléen par point de mesure. 26 tests, 3 mutations détectées, vérifié sur la tablette. **Limite : coût des mesures activées estimé à +4 points de CPU sur 3 séries seulement** (PERFORMANCE.md). Le temps de « décodage » inclut l'attente réseau. Voir PERFORMANCE.md.)*
 
 ### SS-061 — Mesurer allocations — P1
-**Statut : ⬜ À faire** — Aucune session de référence de 30 min / 2 h. Seuls existent des tests JVM qui mesurent les octets alloués par le thread (`allocatedBytes…` dans Hextile, Framebuffer, KeepAlive, DirtyRegion), pas les allocations sur l'appareil.
-Session de référence de 30 min puis 2 h.
+**Statut : 🟡 Partiel** — session de 30 min faite ; **session de 2 h en cours** (lancée le 2026-09-21 à 08:37), résultats à ajouter.
+Session de référence de 30 min puis 2 h. *(En place : comptage d'allocations Dalvik dans `perf/` (thread de session, processus, thread UI ; tas Java et natif), `ThreadMeter` (interface, pas de lambda qui boxerait), `scripts/reference-server.sh`, `reference_session.py`, `analyze_session.py`. 30 min sur la GT-P5110 : chemin chaud de 0 à ~1,7 Ko/s, aucune croissance du tas après GC, du PSS, des threads, des descripteurs ni des objets d'interface. **Limites :** `Debug.getGlobalGcInvocationCount()` rend toujours 0 sur l'appareil (les ramasse-miettes sont lus dans le journal) ; charge synthétique, un seul appareil ; les allocations « de production » (mesures désactivées) ne sont pas mesurées directement. Voir PERFORMANCE.md.)*
 
 ### SS-062 — Réduire copies framebuffer — P1
 **Statut : ✅ Fait**

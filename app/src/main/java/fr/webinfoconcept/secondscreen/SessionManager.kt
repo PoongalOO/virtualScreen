@@ -1,6 +1,6 @@
 package fr.webinfoconcept.secondscreen
 
-import android.os.Debug
+import fr.webinfoconcept.secondscreen.perf.AndroidThreadMeter
 import fr.webinfoconcept.secondscreen.perf.PerfStats
 import fr.webinfoconcept.secondscreen.session.ConnectionController
 
@@ -15,7 +15,7 @@ object SessionManager {
      * Compteurs de performance (SS-060) : **désactivés par défaut** ; l'utilisateur les active depuis l'écran de diagnostic.
      * Le temps processeur est celui du thread de session (décodage et rendu).
      */
-    val perf: PerfStats = PerfStats { Debug.threadCpuTimeNanos() }
+    val perf: PerfStats = PerfStats(AndroidThreadMeter)
 
     val controller: ConnectionController by lazy { ConnectionController(perf = perf) }
 }

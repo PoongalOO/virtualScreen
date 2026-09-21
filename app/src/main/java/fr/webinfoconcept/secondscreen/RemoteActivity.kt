@@ -24,6 +24,7 @@ import fr.webinfoconcept.secondscreen.input.PointerMapper
 import fr.webinfoconcept.secondscreen.input.PointerPosition
 import fr.webinfoconcept.secondscreen.input.TouchpadActions
 import fr.webinfoconcept.secondscreen.input.TouchInput
+import fr.webinfoconcept.secondscreen.perf.AndroidMemoryProbe
 import fr.webinfoconcept.secondscreen.perf.PerfSampler
 import fr.webinfoconcept.secondscreen.perf.PerfSnapshot
 import fr.webinfoconcept.secondscreen.profile.PreferencesStore
@@ -481,12 +482,14 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
             if (!perf.enabled) {
                 perf.reset()
                 perf.enabled = true
+                AndroidMemoryProbe.startCounting() // comptage des allocations de la VM (SS-061), tant que les mesures sont actives
             }
             perfSampler.reset() // référence neuve : la première seconde ne compte pas ce qui précède
             perfHud.visibility = View.VISIBLE
             perfHud.text = ""
             perfHud.postDelayed(perfTick, PERF_TICK_MS)
         } else {
+            if (perf.enabled) AndroidMemoryProbe.stopCounting()
             perf.enabled = false
             perfHud.visibility = View.GONE
         }
@@ -494,8 +497,7 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
 
     private val perfTick = object : Runnable {
         override fun run() {
-            val heap = Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }
-            val snapshot = perfSampler.sample(System.nanoTime(), heap)
+            val snapshot = perfSampler.sample(System.nanoTime(), AndroidMemoryProbe.read())
             perfHud.text = perfText(snapshot)
             // Une ligne de chiffres par seconde dans le journal, pour les mesures : aucun contenu d'écran ni saisie.
             Log.i(PERF_TAG, perfLogLine(snapshot))
@@ -508,14 +510,17 @@ class RemoteActivity : Activity(), ConnectionController.Listener {
         return getString(R.string.perf_hud_updates, f(p.updatesPerSecond), f(p.rendersPerSecond), f(p.megapixelsPerSecond)) + "\n" +
             getString(R.string.perf_hud_network, f(p.bytesReceivedPerSecond / 1024f), f(p.bytesSentPerSecond / 1024f), f(p.decodeAvgMs), f(p.decodeMaxMs)) + "\n" +
             getString(R.string.perf_hud_render, f(p.renderAvgMs), f(p.copyAvgMs), f(p.drawAvgMs), f(p.renderMaxMs), f(p.copiedPixelsPerRender / 1000f), p.fullScreenCopies.toInt()) + "\n" +
-            getString(R.string.perf_hud_system, p.cpuPercent, (p.heapUsedKb / 1024).toInt())
+            getString(R.string.perf_hud_system, p.cpuPercent, (p.heapUsedKb / 1024).toInt()) + "\n" +
+            getString(R.string.perf_hud_alloc, p.sessionAllocsPerSecond, f(p.sessionAllocsPerUpdate), p.allocsPerSecond, p.uiAllocsPerSecond)
     }
 
     private fun perfLogLine(p: PerfSnapshot): String =
-        "maj/s=%.1f rendus/s=%.1f mpx/s=%.2f rx_ko/s=%d tx_ko/s=%d decod_ms=%.1f(max %.1f) rendu_ms=%.1f copie_ms=%.1f dessin_ms=%.1f(max %.1f) kpx_copies=%d plein_ecran=%d rendus_complets=%d cpu=%d tas_ko=%d".format(
+        "maj/s=%.1f rendus/s=%.1f mpx/s=%.2f rx_ko/s=%d tx_ko/s=%d decod_ms=%.1f(max %.1f) rendu_ms=%.1f copie_ms=%.1f dessin_ms=%.1f(max %.1f) kpx_copies=%d plein_ecran=%d rendus_complets=%d cpu=%d tas_ko=%d natif_ko=%d alloc/s=%d alloc_ko/s=%d sess_alloc/s=%d sess_alloc_o/s=%d sess_alloc/maj=%.1f ui_alloc/s=%d".format(
             java.util.Locale.US, p.updatesPerSecond, p.rendersPerSecond, p.megapixelsPerSecond, p.bytesReceivedPerSecond / 1024,
             p.bytesSentPerSecond / 1024, p.decodeAvgMs, p.decodeMaxMs, p.renderAvgMs, p.copyAvgMs, p.drawAvgMs, p.renderMaxMs,
-            p.copiedPixelsPerRender / 1000, p.fullScreenCopies, p.fullRedraws, p.cpuPercent, p.heapUsedKb
+            p.copiedPixelsPerRender / 1000, p.fullScreenCopies, p.fullRedraws, p.cpuPercent, p.heapUsedKb, p.nativeHeapKb,
+            p.allocsPerSecond, p.allocBytesPerSecond / 1024, p.sessionAllocsPerSecond, p.sessionAllocBytesPerSecond,
+            p.sessionAllocsPerUpdate, p.uiAllocsPerSecond
         )
 
     /** Met à jour le compte à rebours de la reconnexion automatique, une fois par seconde. */

@@ -115,7 +115,7 @@ Un seul appareil, un serveur TigerVNC dans un conteneur, quelques dizaines de se
 
 ## Copies du framebuffer (SS-060, SS-062)
 
-Mesuré **avec l'instrumentation de SS-060** (bandeau + journal `SecondScreenPerf`, moyennes par seconde après 3 s de démarrage, ~17 s par scénario) sur la GT-P5110, TigerVNC 1280×800 dans un conteneur, RAW, surface 1280×752 (rendu mis à l'échelle). Mesures « avant » : même code, boîte englobante seule.
+Mesuré **avec l'instrumentation de SS-060** (bandeau + journal `SecondScreenPerf`, moyennes par seconde après 3 s de démarrage, ~17 s par scénario) sur la GT-P5110, TigerVNC 1280×800 dans un conteneur, RAW, surface 1280×752 (barre système visible) : **rendu 1:1 rogné des 48 dernières lignes**, pas le rendu ajusté (voir plus bas). Mesures « avant » : même code, boîte englobante seule.
 
 | Scénario | | Mises à jour/s | Copie par rendu | Dessin par rendu | Pixels copiés par rendu | CPU (1 cœur) |
 |---|---|---|---|---|---|---|
@@ -126,13 +126,64 @@ Mesuré **avec l'instrumentation de SS-060** (bandeau + journal `SecondScreenPer
 | Horloge (une petite zone) | après | 1,2 | 0,2 ms | 19,7 ms | ~0 | 2 % |
 
 - **Le gain est sur la copie** : 22,4 → 0,2 ms par rendu pour des zones éparses. Pour une grande zone qui change vraiment (défilement), il n'y a **ni gain ni perte** (les 650 000 pixels sont réellement modifiés), comme attendu.
-- **(1) Le CPU est bruité** : sur une charge fixe, six exécutions de 30 s ont donné 31 à 33 % ou 48 à 51 % du cœur **quel que soit le réglage des mesures**, sans que j'aie identifié la cause de ces deux régimes. La baisse de CPU de 71 % à 42 % est donc **indicative**, pas démontrée ; la baisse du temps de copie, elle, se lit directement sur les chronomètres.
+- **(1) Le CPU est bruité** : une série de six exécutions de 30 s, **toutes dans la même configuration** (mesures désactivées, sans que je l'aie vu à l'époque : voir « Coût des mesures » plus bas), a donné 31 à 33 % ou 48 à 51 % du cœur, sans que j'aie identifié la cause de ces deux régimes. La baisse de CPU de 71 % à 42 % (une exécution de chaque) est donc **indicative**, pas démontrée ; la baisse du temps de copie, elle, se lit directement sur les chronomètres.
 - **Le dessin n'a pas baissé** (18,3 → 23,2 ms sur le scénario éparse) : la boîte englobante est toujours entièrement repeinte, et cette valeur varie d'une exécution à l'autre. Le coût fixe du dessin (~18 à 23 ms) est désormais le plafond : ~50 rendus/s au mieux. Le réduire demanderait de ne plus utiliser `lockCanvas` sur une zone couvrant les deux rectangles (par exemple un rendu par rectangle), non essayé faute de mesure qui le justifie.
 - **Copies plein écran : 0** dans tous les scénarios (le défilement copie ~66 % du framebuffer, sous le seuil de 90 %).
-- **Coût des mesures elles-mêmes** : **non chiffré**. La comparaison mesures activées / désactivées est noyée dans le bruit ci-dessus. Désactivées, chaque point de mesure ne fait qu'une lecture de booléen ; activées, elles ajoutent deux `nanoTime` par rendu, quelques compteurs atomiques et un échantillonnage par seconde.
+- **Coût des mesures elles-mêmes** : voir la section « Coût des mesures » ci-dessous (mesuré dans un second temps, la première tentative ayant été invalide).
 - Un seul appareil, un seul serveur, une seule configuration : ce sont des ordres de grandeur.
 
-**Exactitude de l'image après copie partielle** (les optimisations ne doivent pas changer un pixel) : trois fenêtres éloignées mises à jour en continu, puis figées ; capture de la tablette comparée au **framebuffer serveur lu par un client RFB indépendant** : **0 pixel différent** en plein écran 1:1 (zone visible, hors barre système). Sur le rendu mis à l'échelle : image après mises à jour partielles comparée à l'image du rendu complet après reconnexion : **0 pixel différent**. Mutation (ne copier que le premier rectangle) : **5 983 pixels faux** en 1:1 et **6 127** mis à l'échelle, donc le contrôle détecte bien le défaut.
+**Exactitude de l'image après copie partielle** (les optimisations ne doivent pas changer un pixel) : trois fenêtres éloignées mises à jour en continu, puis figées.
+- **Rendu 1:1** (le défaut) : capture de la tablette comparée au **framebuffer serveur lu par un client RFB indépendant** : **0 pixel différent** (zone visible, hors la barre système qui cache les 48 dernières lignes). Mutation (ne copier que le premier rectangle) : **5 983 pixels faux**.
+- **Rendu ajusté** (option « Échelle », échelle 0,94 : le xterm de 136 px en fait 128) : image après mises à jour partielles comparée à l'image du rendu complet obtenue en se reconnectant sur le même contenu figé : **0 pixel différent**. Même mutation : **3 264 pixels faux**.
+- **Correction** : un premier contrôle « rendu ajusté » avait été fait **sans activer l'option** (le réglage était écrit dans un format que l'application ignore) : il testait en réalité le 1:1. Il a été refait avec l'option réellement active.
+
+## Coût des mesures (SS-060)
+
+Mesuré sur la GT-P5110 : CPU **du processus entier** (`utime + stime` de `/proc/<pid>/stat` sur 30 s) contre une charge serveur fixe (deux petites zones qui changent 20 fois par seconde, rendu 1:1), 3 alternances mesures activées / désactivées, session rouverte à chaque fois.
+
+| | Série 1 | Série 2 | Série 3 | Moyenne |
+|---|---|---|---|---|
+| Mesures **activées** (bandeau, journal, comptage d'allocations Dalvik) | 42,5 % | 48,3 % | 47,4 % | **46,0 %** |
+| Mesures **désactivées** | 44,8 % | 40,1 % | 40,7 % | **41,9 %** |
+
+- **Environ +4 points de CPU d'un cœur (~10 % de plus)** avec les mesures activées. **Les plages se recouvrent** (une série « désactivée » à 44,8 % dépasse une série « activée » à 42,5 %) et il n'y a que 3 séries par cas : c'est une estimation, pas une mesure précise.
+- Ce coût comprend : deux `nanoTime` par rendu, quelques compteurs atomiques, le comptage d'allocations de la VM, et surtout **l'affichage** (texte du bandeau et ligne de journal, une fois par seconde, ~380 objets/s sur le thread UI, voir plus bas).
+- Désactivées, l'application n'exécute qu'une lecture de booléen par point de mesure ; aucune ligne de journal (vérifié : 0 ligne en 6 s).
+- **Erreur de la première tentative** : les mesures « activées » et « désactivées » y avaient été demandées par un réglage écrit dans un format ignoré par l'application (booléen XML au lieu de chaîne) : les six séries étaient en réalité **toutes désactivées**. Leur dispersion (31 à 51 %) est donc la variabilité entre exécutions **d'une même configuration** sur une autre charge ; elle rappelle qu'une seule exécution de chaque ne prouve rien.
+
+## Allocations (SS-061)
+
+Session de référence : `scripts/reference_session.py` (voir DEVELOPMENT.md). Charge serveur en boucle de cinq phases de 60 s (horloge, deux zones éparses à 20 mises à jour/s, terminal qui défile, fenêtres qui s'ouvrent et se ferment, repos), un toucher, un glissement, un texte ou une touche effacer toutes les 15 s, mesures activées, rendu 1:1, GT-P5110 Android 4.2.2, TigerVNC 1280×800 dans un conteneur, RAW/Hextile selon le serveur.
+
+### Session de 30 min
+
+1 742 lignes de mesure (une par seconde), **0 trou, 0 anomalie**, un seul processus (l'application n'a ni redémarré ni planté), 119 entrées envoyées.
+
+| Phase | mises à jour/s | objets alloués/s par le **thread de session** | **par mise à jour** | octets/s | objets/s, **processus entier** | dont thread UI | CPU % |
+|---|---|---|---|---|---|---|---|
+| horloge | 1,1 | 0 | 0,2 | 12 | 416 | 384 | 2 |
+| deux zones éparses | 16,6 | 16 | 1,0 | 205 | 433 | 384 | 29 |
+| terminal qui défile | 10,7 | 143 | 13,4 | 1 727 | 564 | 388 | 75 |
+| fenêtres ouvertes/fermées | 2,4 | 28 | 11,8 | 343 | 444 | 385 | 19 |
+| repos | 0,4 | 0 | 0,3 | 4 | 415 | 384 | 1 |
+| **toutes** | 6,3 | 38 | 6,1 | 464 | 455 | 385 | 26 |
+
+- **Le chemin chaud (thread de session : lecture, décodage, rendu) alloue très peu** : de 0 à ~1,7 Ko/s, y compris au pire (terminal qui défile). Au repos, il n'alloue **rien** (4 octets/s, l'objet du message de battement).
+- **L'essentiel des allocations est celui des mesures elles-mêmes** : ~385 objets/s et ~21 Ko/s sur le thread UI, à toute charge, sont le texte du bandeau et la ligne de journal, une fois par seconde. Avec les mesures désactivées, l'application alloue donc **moins que ce tableau** (voir la borne ci-dessous).
+- **Origine probable des allocations du thread de session** (lecture du code, **non vérifiée par une mesure dédiée**) : un objet `FramebufferUpdated` par mise à jour, et un itérateur par rectangle (`decoderList.firstOrNull { … }` sur une `List`). Cohérent avec ~1 objet par mise à jour dans « deux zones éparses » et ~12 à 13 pour les mises à jour à nombreux rectangles. Quelques objets de 16 à 24 octets par mise à jour : **aucune correction n'est justifiée par la mesure** (AGENTS.md).
+- **Ramasse-miettes** (journal Dalvik, 22 pour l'application en 30 min = **0,7/min**) : `GC_CONCURRENT`, ~1,9 Mo libérés chacun, 65 ms en moyenne (max 103 ms) dont l'essentiel en arrière-plan. Environ **24 Ko/s** libérés, c'est-à-dire l'allocation totale **avec** les mesures. La fréquence est la même dans toutes les phases, ce qui confirme que le bruit de fond dominant est celui du bandeau. `Debug.getGlobalGcInvocationCount()` rend **toujours 0** sur cet appareil (0 sur 1 774 s pour 22 collectes) : il n'est pas utilisé.
+- **Aucune fuite visible en 30 min** : le tas Java utilisé **après** ramasse-miettes est resté à 13 186 → 13 187 Ko (pente −2 Ko/h) ; PSS total 44,6 → 40,9 Mo (en baisse) ; threads 14 à 15 ; descripteurs de fichiers 56 constant ; `Views` 110, `Activities` 3, `ViewRootImpl` 2 à 3, contextes 5, tous constants. Aucune alerte de l'outil d'analyse.
+
+### Session de 2 h
+
+*Voir ci-dessous une fois terminée.*
+
+### Limites
+
+- Un seul appareil, un seul serveur (conteneur sur le même réseau Wi-Fi), un seul profil de charge synthétique : ce n'est pas une session d'utilisation réelle (pas de vidéo, pas de saisie longue, pas de rotation, pas de mise en veille).
+- Les entrées viennent de `adb shell input` (un toucher ou un glissement à un doigt, du texte, une touche) : pas de geste à deux ou trois doigts, pas de mode touchpad.
+- Les chiffres d'allocation sont ceux de Dalvik (`Debug.getThreadAllocCount`, etc.) : objets et octets demandés, pas la mémoire résidente.
+- Le bandeau et le comptage des allocations font partie de ce qui est mesuré ; l'allocation « de production » (mesures désactivées) n'a pas été mesurée directement.
 
 ## Mesures avant optimisation
 

@@ -1,7 +1,9 @@
 package fr.webinfoconcept.secondscreen.perf
 
 import org.junit.Assert.assertEquals
+import fr.webinfoconcept.secondscreen.rfb.testutil.allocatedBytesOfCurrentThread
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 
@@ -13,7 +15,7 @@ class PerfStatsTest {
         onRender(false, 4_000, 1_000_000, 3_000_000, 100_000)
         traffic.onReceived(1_500)
         traffic.onSent(10)
-        recordSessionThreadCpu()
+        recordSessionThread()
     }
 
     @Test
@@ -107,10 +109,10 @@ class PerfStatsTest {
         var reads = 0
         val stats = PerfStats { reads++; 1L }
 
-        stats.recordSessionThreadCpu()
+        stats.recordSessionThread()
         assertEquals(0, reads)
         stats.enabled = true
-        stats.recordSessionThreadCpu()
+        stats.recordSessionThread()
         assertEquals(1, reads)
     }
 
@@ -191,5 +193,75 @@ class PerfStatsTest {
         // Bornes très larges (machine chargée) : de l'ordre de la microseconde au pire ; mesure réelle dans PERFORMANCE.md.
         assertTrue("désactivé : $disabledNsPerCall ns/appel", disabledNsPerCall < 500)
         assertTrue("activé : $enabledNsPerCall ns/appel", enabledNsPerCall < 5_000)
+    }
+
+    // ============================================================ allocations du thread de session (SS-061)
+
+    /** Un meter dont les valeurs sont réglables, sans boxing (comme [AndroidThreadMeter]). */
+    private class FakeMeter : ThreadMeter {
+        @JvmField var cpu = 0L
+        @JvmField var objects = 0L
+        @JvmField var bytes = 0L
+        var reads = 0
+        override fun cpuNanos(): Long { reads++; return cpu }
+        override fun allocatedObjects(): Long { reads++; return objects }
+        override fun allocatedBytes(): Long { reads++; return bytes }
+    }
+
+    @Test
+    fun `the session thread allocations are recorded with the cpu time, only when enabled`() {
+        val meter = FakeMeter().apply { cpu = 5_000; objects = 42; bytes = 9_000 }
+        val stats = PerfStats(meter)
+
+        stats.recordSessionThread()
+        assertEquals("désactivé : le meter n'est même pas lu", 0, meter.reads)
+        assertEquals(PerfCounters(), stats.counters())
+
+        stats.enabled = true
+        stats.recordSessionThread()
+        val c = stats.counters()
+        assertEquals(5_000L, c.sessionCpuNs)
+        assertEquals(42L, c.sessionAllocObjects)
+        assertEquals(9_000L, c.sessionAllocBytes)
+
+        meter.objects = 50; meter.bytes = 9_800
+        stats.recordSessionThread()
+        assertEquals("cumul du thread, pas une somme", 50L, stats.counters().sessionAllocObjects)
+        assertEquals(9_800L, stats.counters().sessionAllocBytes)
+    }
+
+    @Test
+    fun `reset clears the session allocations too`() {
+        val stats = PerfStats(FakeMeter().apply { objects = 7; bytes = 70 }).also { it.enabled = true }
+        stats.recordSessionThread()
+
+        stats.reset()
+
+        assertEquals(PerfCounters(), stats.counters())
+    }
+
+    @Test
+    fun `the default meter measures nothing`() {
+        val stats = PerfStats().also { it.enabled = true }
+
+        stats.recordSessionThread()
+
+        assertEquals(PerfCounters(), stats.counters())
+    }
+
+    @Test(timeout = 30_000)
+    fun `recording the session thread allocates nothing, enabled or not`() {
+        assumeTrue("mesure d'allocation indisponible sur cette JVM", allocatedBytesOfCurrentThread() != null)
+        val stats = PerfStats(FakeMeter().apply { cpu = 1_000_000_000_000L; objects = 3_000_000_000L; bytes = 4_000_000_000L })
+        repeat(50_000) { stats.recordSessionThread() } // échauffement (compilation JIT)
+
+        for (enabled in listOf(false, true)) {
+            stats.enabled = enabled
+            val before = allocatedBytesOfCurrentThread()!!
+            repeat(100_000) { stats.recordSessionThread() }
+            val allocated = allocatedBytesOfCurrentThread()!! - before
+            // Des valeurs > 127 : une lambda `() -> Long` boxerait à chaque lecture (~16 octets), soit > 1,6 Mo ici.
+            assertTrue("$allocated octets alloués pour 100 000 enregistrements (activé = $enabled)", allocated < 4_096)
+        }
     }
 }

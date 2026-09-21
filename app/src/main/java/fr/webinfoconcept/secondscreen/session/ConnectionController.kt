@@ -550,7 +550,7 @@ class ConnectionController(
                 if (socket.isClosed) throw e
                 val silentMs = (System.nanoTime() - lastReceivedNs) / 1_000_000L
                 if (silentMs > config.livenessTimeoutMs) throw e
-                perf?.recordSessionThreadCpu()
+                perf?.recordSessionThread()
                 continue
             }
             lastReceivedNs = System.nanoTime()
@@ -559,7 +559,7 @@ class ConnectionController(
                 if (isCurrent(gen)) renderTarget?.onFramebufferUpdated()
                 socket.write(nextRequest, 0, nextRequest.size)
             }
-            perf?.recordSessionThreadCpu() // temps processeur du thread de session (décodage + rendu), si mesuré
+            perf?.recordSessionThread() // processeur et allocations du thread de session (décodage + rendu), si mesuré
         }
     }
 

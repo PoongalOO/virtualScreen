@@ -150,9 +150,16 @@ Package `perf/`, **désactivé par défaut** (case « Afficher FPS et débit » 
 - `PerfStats` : compteurs `AtomicLong` (mises à jour, rectangles, pixels décodés, temps de décodage, rendus, temps de copie/dessin, pixels copiés, copies plein écran, octets reçus/envoyés, CPU du thread de session). Chaque point de mesure commence par **une lecture d'un booléen `@Volatile`** ; désactivé, il ne fait rien d'autre (pas d'appel à `nanoTime`, aucune allocation). L'horloge CPU du thread est **injectée** (`Debug.threadCpuTimeNanos`, API 1) pour que la logique reste testable sur la JVM.
 - `TrafficCounter` : octets reçus (via un `FilterInputStream` posé **sous** le `BufferedInputStream`, donc les octets réels du socket) et envoyés (`RfbSocket.write`). Nombres seulement : jamais de contenu, donc rien de secret.
 - `PerfSampler` / `PerfSnapshot` : calcul **pur** des débits par seconde à partir de deux relevés de compteurs (testé sans Android).
-- `RemoteActivity` échantillonne **une fois par seconde** sur le thread UI (aucun réseau) : bandeau `remote_perf` (4 lignes : mises à jour, réseau, rendu, système) et une ligne de journal `SecondScreenPerf` faite **de nombres uniquement**.
+- `RemoteActivity` échantillonne **une fois par seconde** sur le thread UI (aucun réseau) : bandeau `remote_perf` (5 lignes : mises à jour, réseau, rendu, système, allocations) et une ligne de journal `SecondScreenPerf` faite **de nombres uniquement**.
 - « Copies plein écran » : un rendu **partiel** qui copie ≥ 90 % du framebuffer. Doit rester à 0 en usage normal ; un rendu complet légitime (première image, surface recréée) n'y est pas compté.
 - Le temps de « décodage » d'une mise à jour **inclut l'attente réseau** du reste du message : c'est un temps de réception + décodage, pas du CPU pur (le CPU du thread de session, lui, est mesuré à part).
+
+### Allocations (SS-061)
+
+- **Ce qui est compté** (API 1, `android.os.Debug`, comptage d'allocations de Dalvik, démarré **seulement** quand les mesures sont actives : `AndroidMemoryProbe.startCounting()`) : objets et octets alloués par le **thread de session** (`getThreadAllocCount/Size`, lus par ce thread après chaque message : `PerfStats.recordSessionThread()`), par **tout le processus** (`getGlobalAllocCount/Size`), par le **thread UI** seul, nombre de ramasse-miettes (`getGlobalGcInvocationCount`), tas Java et natif. Les compteurs `int` sont lus comme non signés.
+- **`ThreadMeter` est une interface, pas des lambdas** : une lambda `() -> Long` *boxe* son résultat, donc allouerait à chaque lecture et fausserait la mesure du thread qu'elle observe. Un test vérifie que `recordSessionThread()` n'alloue rien (activé ou non).
+- Le thread UI est compté à part : l'affichage des mesures (texte du bandeau, ligne de journal, une fois par seconde) alloue de l'ordre de 380 objets/s ; c'est le **coût des mesures**, pas celui de l'application.
+- Session de référence : `scripts/reference-server.sh`, `scripts/reference_session.py`, `scripts/analyze_session.py` (voir DEVELOPMENT.md).
 
 ## Entrées (SS-040 à SS-044)
 

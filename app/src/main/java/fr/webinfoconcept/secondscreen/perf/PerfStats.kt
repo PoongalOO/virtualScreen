@@ -17,10 +17,17 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * **Aucune donnée sensible** : uniquement des nombres (comptes, durées, octets), jamais de contenu de l'écran ni de saisie.
  *
- * @param threadCpuClock temps processeur consommé par le thread **courant**, en ns (`Debug.threadCpuTimeNanos()` sur
- *   Android). Injecté pour que la classe reste testable sans Android.
+ * @param threadMeter temps processeur et allocations du thread **courant** ([AndroidThreadMeter] sur Android). Injecté pour que
+ *   la classe reste testable sans Android ; une interface et non des lambdas, qui boxeraient chaque lecture (voir [ThreadMeter]).
  */
-class PerfStats(private val threadCpuClock: () -> Long = { 0L }) {
+class PerfStats(private val threadMeter: ThreadMeter = ThreadMeter.None) {
+
+    /** Pour les tests : seulement une horloge processeur. Boxe à chaque lecture : ne pas utiliser en production. */
+    constructor(threadCpuClock: () -> Long) : this(object : ThreadMeter {
+        override fun cpuNanos() = threadCpuClock()
+        override fun allocatedObjects() = 0L
+        override fun allocatedBytes() = 0L
+    })
 
     /** Mesures actives. Faux par défaut ; les points de mesure vérifient ce drapeau avant tout calcul. */
     @Volatile
@@ -43,6 +50,8 @@ class PerfStats(private val threadCpuClock: () -> Long = { 0L }) {
     private val copiedPixels = AtomicLong()
     private val fullScreenCopies = AtomicLong()
     private val cpuNs = AtomicLong()
+    private val sessionAllocObjects = AtomicLong()
+    private val sessionAllocBytes = AtomicLong()
 
     /**
      * Un `FramebufferUpdate` a été décodé : [rectangles] rectangles couvrant [pixels] pixels, en [nanos] ns (temps du message,
@@ -75,12 +84,15 @@ class PerfStats(private val threadCpuClock: () -> Long = { 0L }) {
     }
 
     /**
-     * À appeler **depuis le thread de session** (typiquement après chaque message) : retient son temps processeur cumulé.
-     * Sans effet si les mesures sont désactivées.
+     * À appeler **depuis le thread de session** (typiquement après chaque message) : retient son temps processeur et ses
+     * allocations cumulés (SS-061). Sans effet si les mesures sont désactivées ; **n'alloue pas** (trois lectures, trois écritures
+     * sur des `AtomicLong` existants).
      */
-    fun recordSessionThreadCpu() {
+    fun recordSessionThread() {
         if (!enabled) return
-        cpuNs.set(threadCpuClock())
+        cpuNs.set(threadMeter.cpuNanos())
+        sessionAllocObjects.set(threadMeter.allocatedObjects())
+        sessionAllocBytes.set(threadMeter.allocatedBytes())
     }
 
     /** Lit tous les compteurs (non atomique d'un champ à l'autre : suffisant pour des moyennes sur une seconde). */
@@ -97,7 +109,9 @@ class PerfStats(private val threadCpuClock: () -> Long = { 0L }) {
         fullScreenCopies = fullScreenCopies.get(),
         bytesReceived = traffic.received,
         bytesSent = traffic.sent,
-        sessionCpuNs = cpuNs.get()
+        sessionCpuNs = cpuNs.get(),
+        sessionAllocObjects = sessionAllocObjects.get(),
+        sessionAllocBytes = sessionAllocBytes.get()
     )
 
     /** Plus long décodage depuis le dernier appel, en ns ; remis à zéro. */
@@ -109,7 +123,7 @@ class PerfStats(private val threadCpuClock: () -> Long = { 0L }) {
     /** Remet tous les compteurs à zéro (début d'une mesure). */
     fun reset() {
         for (c in listOf(updates, rects, decodedPixels, decodeNs, decodeMaxNs, renders, redraws, copyNs, drawNs, renderMaxNs,
-            copiedPixels, fullScreenCopies, cpuNs)) c.set(0)
+            copiedPixels, fullScreenCopies, cpuNs, sessionAllocObjects, sessionAllocBytes)) c.set(0)
         traffic.reset()
     }
 
@@ -170,5 +184,8 @@ data class PerfCounters(
     val fullScreenCopies: Long = 0,
     val bytesReceived: Long = 0,
     val bytesSent: Long = 0,
-    val sessionCpuNs: Long = 0
+    val sessionCpuNs: Long = 0,
+    /** Objets alloués par le thread de session (cumul de ce thread ; repart de 0 avec chaque nouvelle session). */
+    val sessionAllocObjects: Long = 0,
+    val sessionAllocBytes: Long = 0
 )
