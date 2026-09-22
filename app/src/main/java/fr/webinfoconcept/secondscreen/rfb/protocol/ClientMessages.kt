@@ -150,7 +150,7 @@ object ClientMessages {
     }
 
     private fun writeKeyEvent(message: ByteArray, offset: Int, down: Boolean, keysym: Int) {
-        require(keysym > 0) { "keysym invalide : $keysym" }
+        require(keysym > 0) { "keysym invalide" } // sans sa valeur : c'est une touche tapée
         message.putU8At(offset, TYPE_KEY_EVENT)
         message.putU8At(offset + 1, if (down) 1 else 0) // les 2 octets suivants sont le padding, déjà à zéro
         message.putS32At(offset + 4, keysym)

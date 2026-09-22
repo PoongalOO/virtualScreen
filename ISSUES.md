@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-063). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-070). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -15,10 +15,10 @@ Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (derni
 | E4 — Entrées | 8/8 | 0 | 0 |
 | E5 — UX et profils | 6/6 | 0 | 0 |
 | E6 — Performance | 5/5 | 0 | 0 |
-| E7 — Sécurité | 1/4 | 2 | 1 |
+| E7 — Sécurité | 2/4 | 1 | 1 |
 | E8 — Tests et compatibilité | 4/8 | 2 | 2 |
 | E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **45/57** | **4** | **8** |
+| **Total** | **46/57** | **3** | **8** |
 
 ## Epic E0 — Initialisation
 
@@ -201,8 +201,8 @@ Sur liaison silencieuse, un paquet entrant attend en médiane ~700 ms (jusqu'à 
 Overflow, tailles négatives/interprétées, rectangles hors limites. *(Fait : revue transverse de toutes les valeurs que le serveur fixe (table dans SECURITY.md) ; `rfb/robustness` : plus de 120 000 cas déterministes (géométrie des 3 encodages × 13⁴ valeurs limites, longueurs aux bornes U8/U16/U32 et Int signé, chaque octet de la bannière et de `ServerInit`, flux aléatoires, mutés et coupés à chaque position, « aucun pixel hors du rectangle annoncé »), sur une socket en mémoire (`MemorySocket`). 24 tests, 7 mutations du code de production toutes détectées. **La revue n'a trouvé aucun défaut** : les bornes étaient déjà posées. **Limites :** temps par message non borné (serveur au goutte-à-goutte), quantité de rectangles par mise à jour bornée seulement par le temps, écran > 1920×1200 refusé (budget mémoire), flux produits sur la JVM (pas de vrai serveur hostile, pas de fuzzing en continu).)*
 
 ### SS-071 — Nettoyer les logs — P0
-**Statut : 🟡 Partiel** — Le code ne journalise que la ligne de mesures (nombres, tag `SecondScreenPerf`) ; le mot de passe est effacé après usage. Aucun test ni contrôle automatique n'empêche d'ajouter un journal sensible plus tard.
-Aucun mot de passe ou contenu sensible.
+**Statut : ✅ Fait**
+Aucun mot de passe ou contenu sensible. *(Fait : un seul appel de journal dans toute l'application, dont le contenu (`PerfLogLine`) est fabriqué à partir de nombres et d'une énumération, donc sans texte libre ; deux messages d'exception qui citaient une adresse et la valeur d'une touche corrigés ; garde-fous automatiques : `LogHygieneTest` (analyse du code, 8 tests), `SecretCanaryTest` (mot de passe et texte tapé distinctifs cherchés dans tout ce qui est observable, 6 tests), `PerfLogLineTest` (3 tests) ; 9 fuites injectées toutes détectées ; sur la GT-P5110, ni le mot de passe (faux et juste) ni un texte tapé (reçu par le serveur) n'apparaissent dans les 4 tampons de journal, ni dans l'arbre `uiautomator`. **Limites :** les analyses de code sont heuristiques, un seul scénario sur l'appareil ; journaux du système et clavier logiciel de l'utilisateur hors de notre contrôle ; copie du mot de passe gardée en mémoire avec la reconnexion automatique (SS-055) ; appels `Log` non supprimés en release. Voir SECURITY.md.)*
 
 ### SS-072 — Avertissement connexion non chiffrée — P1
 **Statut : ⬜ À faire** — Documenté dans README.md et SECURITY.md, mais **aucun avertissement dans l'application**.

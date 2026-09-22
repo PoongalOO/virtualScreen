@@ -7,7 +7,7 @@ L'application est destinée à un LAN domestique/de développement de confiance.
 ## Règles
 
 1. Ne jamais exposer directement TCP/5900 sur Internet.
-2. Ne jamais journaliser le mot de passe.
+2. Ne jamais journaliser le mot de passe (ni aucun contenu sensible : voir « Journaux et fuites », SS-071).
 3. Valider toutes les longueurs reçues avant allocation.
 4. Valider tous les rectangles avant écriture framebuffer.
 5. Limiter les dimensions maximales acceptées.
@@ -56,6 +56,35 @@ Revue transverse de **chaque valeur que le serveur peut fixer**. Le principe : u
 - **Texte du presse-papiers de plus de 1 Mio** : la session est coupée (`CutTextTooLong`) au lieu de l'ignorer.
 - **Le format de pixels du serveur est validé strictement puis ignoré** (le client impose le sien) : un serveur au format exotique mais valide est accepté, un format incohérent est refusé même si on ne s'en servirait pas.
 - **Pas de test sur un vrai serveur hostile** ni de fuzzing en continu : les flux sont produits par les tests, sur la JVM ; le comportement sur l'appareil n'est pas rejoué.
+
+## Journaux et fuites (SS-071)
+
+**Politique.** L'application n'écrit qu'**une seule ligne de journal** (`SecondScreenPerf`), **seulement si l'utilisateur active les mesures**, et cette ligne ne contient que des **nombres et la clé d'un encodage** (`auto`, `hextile`, `raw`). Jamais : mot de passe, texte tapé, contenu de l'écran distant, presse-papiers, adresse ou nom de machine, texte envoyé par le serveur.
+
+| Canal de fuite | Ce qui est fait | Garde-fou |
+|---|---|---|
+| Journal Android (logcat) | un seul appel `Log.i`, dont le contenu est fabriqué par `PerfLogLine.format(PerfSnapshot, EncodingMode)` : ses seuls arguments sont des nombres et une énumération, donc aucun texte libre n'y entre | `LogHygieneTest` (un seul appel de journal dans toute l'application), `PerfLogLineTest` (grammaire stricte, valeurs extrêmes, toute langue) |
+| Sortie standard et d'erreur | aucun `println`, `System.out/err`, `printStackTrace` | `LogHygieneTest`, `SecretCanaryTest` (capture) |
+| Messages d'exception (donc traces de plantage) | ne citent jamais un secret, une touche, un texte serveur ni une adresse : deux messages corrigés par cette revue (`Hôte inconnu` sans l'hôte ; `keysym invalide` sans sa valeur) | `LogHygieneTest` (aucune interpolation de valeur sensible dans un message), `SecretCanaryTest` (recherche du canari dans les messages, causes et traces) |
+| `toString()` | seuls `ConnectionParams` et `ConnectionProfile.label` montrent l'adresse et le nom **saisis par l'utilisateur**, pour l'écran ; aucune classe de données ne porte un mot de passe, un texte tapé, un défi ou une raison serveur | `LogHygieneTest` (liste blanche de 2 lignes, vérifiée) |
+| État d'instance des vues | le champ du mot de passe a `saveEnabled=false` (connexion et dialogue de reconnexion) et est vidé après copie | `LogHygieneTest` |
+| Apprentissage du clavier | le champ de saisie distant est `VISIBLE_PASSWORD` + `NO_SUGGESTIONS` : le clavier de l'utilisateur ne retient pas ce qu'on tape (qui peut être un mot de passe de l'application distante) | `LogHygieneTest` |
+| Sauvegarde et stockage | `allowBackup=false`, seule permission `INTERNET`, aucun fichier écrit, préférences en `MODE_PRIVATE` | `LogHygieneTest` |
+| Accessibilité, `uiautomator` | le texte d'un champ mot de passe n'est pas exposé | vérifié sur la tablette (voir ci-dessous) |
+
+**Preuves.**
+- **Analyse du code** (`LogHygieneTest`, 8 tests) : échoue si on ajoute un appel de journal, une interpolation de valeur sensible dans un message d'erreur, une classe de données à champ sensible, ou si on affaiblit l'un des réglages ci-dessus.
+- **Canari à l'exécution** (`SecretCanaryTest`, 6 tests) : un mot de passe et un texte tapé **distinctifs** traversent connexion réussie, mot mauvais, mot invalide, reconnexion automatique (le mot de passe est gardé en mémoire) et clavier distant ; on cherche ensuite le canari, entier **et par tranches de 4 caractères**, dans tous les `toString()`, messages et traces (causes comprises) et la sortie standard. Un test témoin vérifie que le banc détecte bien une fuite.
+- **Mutations** : 9 fuites injectées dans le code (un `Log.d` qui écrit le mot de passe, une interpolation ou une concaténation dans un message d'erreur, un texte tapé dans une exception, une classe de données avec un champ mot de passe, du texte libre dans la ligne de mesures, `saveEnabled` retiré, sauvegarde activée, `NO_SUGGESTIONS` retiré) : **les 9 sont détectées**. Les deux fuites par concaténation, invisibles à l'analyse du code, ne sont vues que par le canari.
+- **Sur la GT-P5110** : connexion avec un mot de passe faux puis juste contre un serveur TigerVNC protégé, puis texte tapé sur la tablette (reçu par le serveur : vérifié). **Aucune trace** du mot de passe faux, du mot de passe juste ni du texte tapé (ni entier ni en tranches de 4 caractères) dans les **quatre tampons de journal** (main, system, events, radio : 2 749 lignes, dont 12 lignes de mesures : la journalisation de l'application était bien active). L'arbre `uiautomator` relevé pendant que le mot de passe était dans le champ ne le contient pas.
+- Aucun défaut de journalisation n'a été trouvé : le code n'écrivait déjà rien de sensible. Les deux messages d'exception corrigés citaient une adresse et la valeur d'une touche invalide.
+
+**Limites.**
+- **Une preuve n'est pas une garantie.** Les analyses de code sont des heuristiques (elles voient les interpolations, pas les concaténations ni les appels indirects) ; le canari ne voit que les chemins que les tests exercent ; la vérification sur la tablette est **un scénario** (un serveur, un mot de passe, un texte).
+- **Ce que l'application ne contrôle pas** : les journaux du système et des autres applications, et le **clavier logiciel installé par l'utilisateur** (un clavier tiers peut journaliser ce qu'on y tape ; on l'en dissuade avec `NO_SUGGESTIONS` et `VISIBLE_PASSWORD`, sans plus). Le journal reste lisible par `adb` avec le débogage USB.
+- **Mot de passe en mémoire** : avec la reconnexion automatique une copie reste en mémoire pendant la session (voir plus haut) ; un vidage de mémoire l'exposerait.
+- **Version « release »** : les appels `Log` ne sont pas supprimés à la compilation (pas de minification à ce jour, SS-093) ; il n'y en a qu'un, sous condition de l'utilisateur.
+- **Adresses et noms** : ils ne sont pas des secrets, mais ils sont exclus des journaux et des messages d'erreur ; ils s'affichent à l'écran de l'utilisateur.
 
 ## Secrets
 

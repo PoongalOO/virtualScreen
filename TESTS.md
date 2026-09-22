@@ -33,6 +33,10 @@ Aucun code ne doit supposer qu'un `read()` retourne la totalité d'un message. L
 - type message inconnu ;
 - Wi-Fi coupé puis restauré.
 
+## Journaux et fuites (SS-071)
+
+Package `hygiene` : `LogHygieneTest` (analyse du code : un seul appel de journal, aucune interpolation sensible dans un message, aucune classe de données à champ sensible, champs de mot de passe, clavier, sauvegarde), `SecretCanaryTest` (un mot de passe et un texte distinctifs cherchés dans tout ce qui est observable), `perf/PerfLogLineTest` (la ligne de journal n'est que des nombres). Voir SECURITY.md. Vérification sur la tablette : `scripts/check_logcat_secrets.py` (mot de passe d'essai jetable et texte tapé cherchés dans les quatre tampons de `logcat` après une connexion authentifiée ; code de retour 1 si une trace est trouvée).
+
 ## Tests matériels
 
 Sur GT-P5110 Android 4.2.2 :

@@ -15,7 +15,7 @@ sealed class RfbTransportException(message: String, cause: Throwable? = null) :
 
     /** Le nom d'hôte n'a pas pu être résolu. */
     class UnknownHost(val host: String, cause: Throwable? = null) :
-        RfbTransportException("Hôte inconnu : $host", cause)
+        RfbTransportException("Hôte inconnu", cause) // pas l'adresse : elle est dans [host], jamais dans un message
 
     /** Le délai de connexion TCP est dépassé. */
     class ConnectTimeout(val timeoutMs: Int, cause: Throwable? = null) :
