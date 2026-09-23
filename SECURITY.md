@@ -6,7 +6,7 @@ L'application est destinée à un LAN domestique/de développement de confiance.
 
 ## Règles
 
-1. Ne jamais exposer directement TCP/5900 sur Internet.
+1. Ne jamais exposer directement TCP/5900 sur Internet. Voir PC_SETUP.md, « Pare-feu » (SS-073) pour des règles concrètes (ufw, pare-feu Windows), limitées au sous-réseau du LAN.
 2. Ne jamais journaliser le mot de passe (ni aucun contenu sensible : voir « Journaux et fuites », SS-071).
 3. Valider toutes les longueurs reçues avant allocation.
 4. Valider tous les rectangles avant écriture framebuffer.
@@ -108,6 +108,10 @@ Si cette exception n'est pas acceptable, décochez la case par défaut (`Connect
 ## Frappes au clavier
 
 Tout ce qui est tapé sur la tablette part **non chiffré** vers le PC, comme le reste de la session VNC : un mot de passe saisi dans une application distante circule en clair sur le Wi-Fi. C'est la limite du protocole RFB classique sur un LAN de confiance, pas un défaut de l'application. L'application ne journalise, ne conserve ni n'analyse aucune frappe (`KeyboardInput`, `KeyboardInputView`).
+
+## Avertissement affiché à l'utilisateur (SS-072)
+
+L'écran de connexion affiche en permanence, avant toute saisie, un avertissement non masquable : la connexion RFB/VNC classique circule **en clair** (mot de passe compris) et doit être réservée à un réseau local de confiance. Testé (`ui/ConnectionWarningTest`, 5 tests, 4 mutations détectées) : le texte contient les mots-clés attendus, il n'a ni attribut de visibilité dans le layout ni instruction de le masquer dans le code, et sa couleur (`@color/warning`) est distincte de celle du texte courant et des messages d'erreur.
 
 ## Hors LAN
 

@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (dernier commit : SS-070). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-22 d'après le code, les tests et l'historique git (dernier commit : SS-071). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -15,10 +15,10 @@ Mis à jour le 2026-09-21 d'après le code, les tests et l'historique git (derni
 | E4 — Entrées | 8/8 | 0 | 0 |
 | E5 — UX et profils | 6/6 | 0 | 0 |
 | E6 — Performance | 5/5 | 0 | 0 |
-| E7 — Sécurité | 2/4 | 1 | 1 |
+| E7 — Sécurité | 4/4 | 0 | 0 |
 | E8 — Tests et compatibilité | 4/8 | 2 | 2 |
 | E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **46/57** | **3** | **8** |
+| **Total** | **48/57** | **2** | **7** |
 
 ## Epic E0 — Initialisation
 
@@ -205,12 +205,12 @@ Overflow, tailles négatives/interprétées, rectangles hors limites. *(Fait : r
 Aucun mot de passe ou contenu sensible. *(Fait : un seul appel de journal dans toute l'application, dont le contenu (`PerfLogLine`) est fabriqué à partir de nombres et d'une énumération, donc sans texte libre ; deux messages d'exception qui citaient une adresse et la valeur d'une touche corrigés ; garde-fous automatiques : `LogHygieneTest` (analyse du code, 8 tests), `SecretCanaryTest` (mot de passe et texte tapé distinctifs cherchés dans tout ce qui est observable, 6 tests), `PerfLogLineTest` (3 tests) ; 9 fuites injectées toutes détectées ; sur la GT-P5110, ni le mot de passe (faux et juste) ni un texte tapé (reçu par le serveur) n'apparaissent dans les 4 tampons de journal, ni dans l'arbre `uiautomator`. **Limites :** les analyses de code sont heuristiques, un seul scénario sur l'appareil ; journaux du système et clavier logiciel de l'utilisateur hors de notre contrôle ; copie du mot de passe gardée en mémoire avec la reconnexion automatique (SS-055) ; appels `Log` non supprimés en release. Voir SECURITY.md.)*
 
 ### SS-072 — Avertissement connexion non chiffrée — P1
-**Statut : ⬜ À faire** — Documenté dans README.md et SECURITY.md, mais **aucun avertissement dans l'application**.
-Message explicite pour VNC classique.
+**Statut : ✅ Fait**
+Message explicite pour VNC classique. *(Fait : avertissement permanent et non masquable sur l'écran de connexion, avant toute saisie (`connect_encryption_warning`), couleur dédiée (`@color/warning`) distincte du texte courant et des erreurs. Testé (`ui/ConnectionWarningTest`, 5 tests) : ni attribut `visibility` dans le layout ni instruction de le masquer dans `ConnectActivity`, texte contrôlé, couleur vérifiée. 4 mutations détectées (masqué par XML, masqué par code, texte affaibli, couleur confondue).)*
 
 ### SS-073 — Documenter pare-feu et LAN — P1
-**Statut : 🟡 Partiel** — SECURITY.md et PC_SETUP.md interdisent d'exposer 5900 et de le rediriger (NAT), sans consignes de pare-feu concrètes (ufw, pare-feu Windows).
-Ne jamais recommander d'exposer 5900 sur Internet.
+**Statut : ✅ Fait**
+Ne jamais recommander d'exposer 5900 sur Internet. *(Fait : PC_SETUP.md, section « Pare-feu », règles concrètes limitées au sous-réseau du LAN — `ufw allow from <sous-réseau> to any port 5900` sous Ubuntu (commandes de vérification et de suppression incluses), règle de pare-feu Windows par l'interface ou PowerShell (`New-NetFirewallRule` avec `-RemoteAddress`) ; rappel qu'une règle de pare-feu ne protège pas d'une redirection NAT faite par ailleurs, et piste VPN pour un accès hors LAN. **Limite :** commandes non exécutées ni vérifiées sur une vraie machine Ubuntu ou Windows (revue documentaire seulement).)*
 
 ## Epic E8 — Tests et compatibilité
 

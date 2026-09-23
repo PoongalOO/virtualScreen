@@ -16,6 +16,7 @@
     <string name="connect_name_label">Nom (ex. : PC du bureau)</string>
     <string name="connect_host_label">Adresse du PC (ex. : 192.168.1.10 ou nom-du-pc)</string>
     <string name="connect_port_label">Port (5900 par défaut)</string>
+    <string name="connect_encryption_warning">⚠ Connexion non chiffrée (VNC classique) : le mot de passe et l\'écran distant circulent en clair sur le réseau. À réserver à un réseau local de confiance, jamais à exposer sur Internet.</string>
     <string name="connect_password_label">Mot de passe VNC (vide si le serveur n\'en demande pas)</string>
     <string name="connect_password_note">Le mot de passe n\'est jamais enregistré : il faut le saisir à chaque connexion.</string>
     <string name="connect_auto_reconnect">Se reconnecter automatiquement si la connexion est coupée</string>
