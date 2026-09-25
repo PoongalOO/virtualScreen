@@ -10,13 +10,13 @@ Le client Android n'invente pas un écran. Le PC doit disposer :
 
 ## Windows
 
-Candidat : Virtual Display Driver ou autre pilote open source maintenu permettant de créer un écran 1280×800. Ensuite sélectionner un serveur VNC open source et vérifier qu'il peut capturer le moniteur virtuel voulu.
+Voir **[GUIDE_WINDOWS.md](GUIDE_WINDOWS.md)** (SS-092) : pilote Virtual Display Driver, configuration à 1280×800, choix d'un serveur VNC qui restreint la capture à ce moniteur. **Non vérifié** (aucune machine Windows disponible pour ce projet), à confirmer à l'usage.
 
 Critère : Windows doit être en mode **Étendre ces affichages**, jamais en duplication.
 
 ## Ubuntu
 
-La solution dépend de la session graphique (Xorg/Wayland) et du GPU. Le projet doit documenter une configuration reproductible qui crée un véritable espace d'affichage 1280×800. Un simple bureau VNC indépendant n'est pas équivalent à un deuxième écran étendu.
+Voir **[GUIDE_UBUNTU.md](GUIDE_UBUNTU.md)** (SS-091) : deux procédures reproductibles, une pour étendre un vrai bureau existant (sortie `VIRTUAL1` via `xrandr`, non vérifiée faute de GPU dans l'environnement de développement), une pour un écran virtuel isolé sans bureau existant (pilote `dummy` + `x11vnc --clip`, entièrement vérifiée : dimensions et contenu exacts, découpe fidèle au pixel près). Un simple bureau VNC indépendant n'est pas équivalent à un deuxième écran étendu — voir les limites de chaque méthode dans le guide.
 
 ## Réseau
 

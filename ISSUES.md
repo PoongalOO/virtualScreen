@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-27 d'après le code, les tests et l'historique git (dernier commit : SS-088). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-28 d'après le code, les tests et l'historique git (dernier commit : SS-088). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -17,8 +17,8 @@ Mis à jour le 2026-09-27 d'après le code, les tests et l'historique git (derni
 | E6 — Performance | 5/5 | 0 | 0 |
 | E7 — Sécurité | 4/4 | 0 | 0 |
 | E8 — Tests et compatibilité | 6/9 | 1 | 2 |
-| E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **50/58** | **1** | **7** |
+| E9 — Documentation et release | 1/5 | 2 | 2 |
+| **Total** | **51/58** | **3** | **4** |
 
 ## Epic E0 — Initialisation
 
@@ -259,16 +259,16 @@ Pas de crash/fuite croissante significative.
 ## Epic E9 — Documentation et release
 
 ### SS-090 — README utilisateur — P0
-**Statut : ⬜ À faire** — Le README actuel présente le projet ; il n'explique ni l'installation ni la première connexion.
-Installation et première connexion.
+**Statut : ✅ Fait**
+Installation et première connexion. *(Fait : sections « Installation » — récupérer l'APK (artefact CI ou compilation), autoriser les sources inconnues, installer par USB ou sans câble — et « Première connexion » — configurer le PC d'abord, créer une connexion, tableau des boutons de la barre de commandes, gestes, reconnexion. Termes et libellés vérifiés contre `strings.xml` et le code de l'écran de connexion/barre de commandes.)*
 
 ### SS-091 — Guide Ubuntu — P0
-**Statut : ⬜ À faire** — PC_SETUP.md ne donne que le principe.
-Procédure reproductible et dépannage.
+**Statut : 🟡 Partiel**
+Procédure reproductible et dépannage. *(Fait : GUIDE_UBUNTU.md, deux procédures. **Écran virtuel isolé (pilote `dummy` + `x11vnc --clip`) : entièrement vérifiée** dans un conteneur Ubuntu 22.04 jetable — démarre exactement en 1280×800, et sur un écran de test 3200×1080 avec deux fenêtres, `--clip` n'a exposé que la zone voulue (0 pixel de l'autre fenêtre), lu par un client RFB indépendant. Dépannage inclus. **Étendre un vrai bureau (sortie `VIRTUAL1` via `xrandr`) : non vérifiée**, faute de GPU dans l'environnement de développement (un conteneur n'a pas de pilote graphique réel) — c'est la partie qui manque pour un « Fait » complet, la technique documentée est cependant courante et bien connue pour cet usage.)*
 
 ### SS-092 — Guide Windows — P0
-**Statut : ⬜ À faire** — PC_SETUP.md ne donne que le principe.
-Procédure reproductible et dépannage.
+**Statut : 🟡 Partiel**
+Procédure reproductible et dépannage. *(Fait : GUIDE_WINDOWS.md — pilote Virtual Display Driver, configuration à 1280×800, dépannage. **Rien de vérifié** : aucune machine Windows disponible pour ce projet, écrit dit explicitement comme tel dans le document, y compris l'incertitude sur le choix du serveur VNC capable de restreindre la capture à un seul moniteur (le point le plus fragile du guide). À confirmer et corriger à l'usage.)*
 
 ### SS-093 — Générer APK release — P1
 **Statut : ⬜ À faire** — Seul l'APK debug est produit (CI). `versionName` 0.1.0, ni minification, ni signature release, ni checksum, ni notes de version.
