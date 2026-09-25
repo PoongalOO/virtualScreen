@@ -165,11 +165,13 @@ Package `perf/`, **désactivé par défaut** (case « Afficher FPS et débit » 
 
 ```text
 thread UI :  MotionEvent -> TouchInput -> TouchGestureDetector -> PointerActions -> PointerSender.send() / sendMove() (file bornée, non bloquant)
+             (TouchRotationQuirk : corrige un défaut de la GT-P5110, SS-088)
              (deux doigts : centre des doigts -> Scroll -> crans de molette ; un doigt : tap / glissement / appui long)
                                                           (PointerMapper : pixel de la vue -> pixel du framebuffer)
 thread secondscreen-input :  file -> RfbSocket.write()  (un message entier par appel)
 ```
 
+- **Défaut de rotation de la GT-P5110** (SS-084, SS-088, `TouchRotationQuirk`) : en orientation paysage retournée (`Surface.ROTATION_180`), le rendu compense correctement la rotation physique (vérifié pixel à pixel) mais **la plateforme ne compense pas le toucher** — une position touchée livre la coordonnée **symétrique** de celle affichée. `TouchInput.point()` relit `View.getDisplay().getRotation()` à chaque évènement et annule ce défaut avant que `TouchGestureDetector` ne voie quoi que ce soit : dans l'orientation normale (`ROTATION_0`), rien ne change. C'est un correctif ciblé sur cette anomalie précise, mesurée sur cet appareil, pas une réimplémentation générale de la gestion de rotation.
 - **`PointerEvent`** (`ClientMessages.pointerEvent`, 6 octets : type 5, masque des boutons, x et y en U16 big-endian) : l'état des boutons est **absolu**, le serveur déduit appuis et relâchements en le comparant au précédent. Les valeurs hors plage sont refusées, jamais tronquées.
 - **Coordonnées** (`PointerMapper`) : le rendu est 1:1 ancré en (0, 0), donc `pixel = floor(coordonnée)` (arrondir au plus proche décalerait la cible d'un pixel une fois sur deux). Un toucher hors du framebuffer, ou non fini, n'est **pas** envoyé (pas de clic sur le pixel du bord). Avec une image mise à l'échelle (SS-033), `pixel = floor((coordonnée − décalage) / échelle)` et un toucher dans une bande noire n'est pas envoyé non plus (voir « Mise à l'échelle »).
 - **Tap = clic gauche** (`TouchGestureDetector`) : le clic n'est émis qu'**au relâchement**, jamais à l'appui, afin qu'un appui qui devient un geste ne produise pas de clic gauche parasite. Pas de clic si le doigt bouge de plus du seuil de la plateforme (`scaledTouchSlop` : c'est alors un glissement), si le contact atteint le seuil d'appui long (c'est alors un clic droit, voir plus bas), si un deuxième doigt se pose (c'est alors un défilement, voir plus bas), ou si le système annule le geste. Un relâchement dupliqué ne clique pas deux fois.
@@ -209,6 +211,8 @@ Les entrées partent vers la session courante du `ConnectionController` (`contro
 | GT-P5110 : tap, balayage, tap | 2 clics (celui du balayage n'existe pas) |
 | GT-P5110 : deux taps simultanés au même point | 2 clics |
 | Barre système réapparue : toucher dans les 48 lignes du bas | intercepté par la barre, 0 clic (limite d'Android 4.2 ci-dessus) |
+| GT-P5110, tablette physiquement retournée (SS-088), avant le correctif | rendu correct (compense la rotation), toucher sur une fenêtre affichée : **rien** ; toucher sur la zone symétrique visuellement vide : **atteint la fenêtre** |
+| Idem, après le correctif (`TouchRotationQuirk`) | toucher sur la fenêtre affichée : **l'atteint** ; toucher sur l'ancienne zone symétrique : **rien** ; orientation normale : inchangée |
 
 | Vrai serveur TigerVNC + `xev`, glissement (200,300)→(600,500) en 20 pas | 1 appui bouton 1 en (200,300), 20 déplacements **état bouton 1 maintenu** (`state 0x100`) aux positions exactes, 1 relâchement en (600,500) |
 | Idem, glissement qui sort du cadre par la droite, relâché à x=1500 | pointeur **borné à x=1279**, relâchement en (1279,100) |

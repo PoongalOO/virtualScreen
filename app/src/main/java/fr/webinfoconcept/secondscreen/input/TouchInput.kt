@@ -2,6 +2,7 @@ package fr.webinfoconcept.secondscreen.input
 
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.Surface
 import android.view.View
 import android.view.ViewConfiguration
 
@@ -44,6 +45,9 @@ class ViewDelayScheduler(private val view: View) : DelayScheduler {
  *
  * **Limite Android 4.2** (ARCHITECTURE.md, « Mode immersif ») : quand la barre système est masquée, le toucher qui la
  * fait réapparaître n'est pas transmis à l'application ; ce premier toucher est donc perdu.
+ *
+ * **Correctif GT-P5110** (SS-088) : toute position est relue via [point], qui annule le défaut de rotation mesuré sur
+ * cet appareil ([TouchRotationQuirk]) avant que quoi que ce soit d'autre ne la voie.
  */
 class TouchInput(
     private val actions: PointerActions,
@@ -114,22 +118,31 @@ class TouchInput(
 
     override fun onTouch(view: View, event: MotionEvent): Boolean {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> detector.onDown(event.x, event.y, event.eventTime)
+            MotionEvent.ACTION_DOWN -> {
+                val (x, y) = point(event, 0)
+                detector.onDown(x, y, event.eventTime)
+            }
             MotionEvent.ACTION_MOVE -> {
                 if (threeFingerTap.isTracking && event.pointerCount == 3) {
                     val (cx, cy) = centerOf(event, 3)
                     threeFingerTap.onMove(cx, cy)
                 }
                 if (detector.isScrolling && event.pointerCount >= 2) {
-                    detector.onTwoFingersMove(centerX(event), centerY(event))
+                    val (cx, cy) = centerOf(event, 2)
+                    detector.onTwoFingersMove(cx, cy)
                 } else {
-                    detector.onMove(event.x, event.y)
+                    val (x, y) = point(event, 0)
+                    detector.onMove(x, y)
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 // Exactement deux doigts : un défilement peut commencer ; trois ou plus : geste abandonné.
-                if (event.pointerCount == 2) detector.onTwoFingersDown(centerX(event), centerY(event))
-                else detector.onSecondFingerDown()
+                if (event.pointerCount == 2) {
+                    val (cx, cy) = centerOf(event, 2)
+                    detector.onTwoFingersDown(cx, cy)
+                } else {
+                    detector.onSecondFingerDown()
+                }
                 if (event.pointerCount == 3) {
                     val (cx, cy) = centerOf(event, 3)
                     threeFingerTap.onThreeFingersDown(cx, cy, event.eventTime)
@@ -144,7 +157,8 @@ class TouchInput(
             }
             MotionEvent.ACTION_UP -> {
                 threeFingerTap.cancel()
-                if (detector.onUp(event.x, event.y, event.eventTime)) view.performClick()
+                val (x, y) = point(event, 0)
+                if (detector.onUp(x, y, event.eventTime)) view.performClick()
             }
             MotionEvent.ACTION_CANCEL -> {
                 threeFingerTap.cancel()
@@ -154,19 +168,26 @@ class TouchInput(
         return true
     }
 
-    /** Centre des [count] premiers doigts. */
+    /**
+     * Position du doigt [i] de [event], **corrigée du défaut de rotation de la GT-P5110** (SS-088) : tout le reste du
+     * code ne doit jamais lire `event.getX/getY` directement. Relit l'orientation à chaque appel (`View.getDisplay()`,
+     * API 17) : bien moins fréquent qu'un rendu, le coût est négligeable, et une vue non encore attachée à une fenêtre
+     * (`display == null`) est traitée comme non affectée par le défaut.
+     */
+    private fun point(event: MotionEvent, i: Int): Pair<Float, Float> {
+        val rotation = view.display?.rotation ?: Surface.ROTATION_0
+        return TouchRotationQuirk.correct(event.getX(i), event.getY(i), view.width, view.height, rotation)
+    }
+
+    /** Centre des [count] premiers doigts, chacun corrigé par [point]. */
     private fun centerOf(event: MotionEvent, count: Int): Pair<Float, Float> {
         var x = 0f
         var y = 0f
         for (i in 0 until count) {
-            x += event.getX(i)
-            y += event.getY(i)
+            val (px, py) = point(event, i)
+            x += px
+            y += py
         }
         return Pair(x / count, y / count)
     }
-
-    /** Centre des deux premiers doigts (le défilement n'existe qu'à exactement deux doigts). */
-    private fun centerX(event: MotionEvent) = (event.getX(0) + event.getX(1)) / 2f
-
-    private fun centerY(event: MotionEvent) = (event.getY(0) + event.getY(1)) / 2f
 }

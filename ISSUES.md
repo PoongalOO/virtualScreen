@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-26 d'après le code, les tests et l'historique git (dernier commit : SS-084). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-27 d'après le code, les tests et l'historique git (dernier commit : SS-088). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -16,9 +16,9 @@ Mis à jour le 2026-09-26 d'après le code, les tests et l'historique git (derni
 | E5 — UX et profils | 6/6 | 0 | 0 |
 | E6 — Performance | 5/5 | 0 | 0 |
 | E7 — Sécurité | 4/4 | 0 | 0 |
-| E8 — Tests et compatibilité | 5/9 | 1 | 3 |
+| E8 — Tests et compatibilité | 6/9 | 1 | 2 |
 | E9 — Documentation et release | 0/5 | 0 | 5 |
-| **Total** | **49/58** | **1** | **8** |
+| **Total** | **50/58** | **1** | **7** |
 
 ## Epic E0 — Initialisation
 
@@ -235,19 +235,14 @@ Flux déterministes, fragmentation TCP simulée.
 Installation, connexion, rendu, tactile. *(Fait : campagne formelle du 2026-09-25 (TESTS.md), les 9 tests matériels menés à leur terme contre un serveur authentifié par mot de passe, vérité serveur indépendante (`xwd`) : installation, démarrage à froid (2,1 s), connexion (1,45 s), rendu 1:1 et défilement pixel-exacts (hors curseur composé par TigerVNC, déjà connu, RFB_SPEC.md), déplacement de fenêtre correct, texte tapé et touche « Effacer » corrects, déconnexion/reconnexion automatique et manuelle robustes (4,5 s, y compris une coupure réelle survenue pendant la campagne, détectée et récupérée sans plantage), retour au premier plan par l'icône correct, **rotation physique testée** : le rendu compense correctement l'orientation retournée (pixel-exact), **mais le toucher non — défaut réel trouvé et transformé en issue dédiée, SS-088**. Plus les sessions 30 min et 2 h (SS-061). Chiffres dans PERFORMANCE.md.)*
 
 ### SS-088 — Toucher mal mappé en orientation retournée (seascape) — P1
-**Statut : ⬜ À faire**
-En orientation paysage retournée (physique), le toucher n'est pas compensé alors que le rendu l'est : une même position à l'écran envoie une coordonnée `PointerEvent` qui correspond à l'endroit **symétrique** du bureau distant, comme si l'appareil n'avait pas tourné.
+**Statut : ✅ Fait**
+En orientation paysage retournée (physique), le toucher n'était pas compensé alors que le rendu l'est : une même position à l'écran envoyait une coordonnée `PointerEvent` qui correspondait à l'endroit **symétrique** du bureau distant, comme si l'appareil n'avait pas tourné.
 
-**Trouvé lors de** : campagne SS-084 (2026-09-25). Preuve : une fenêtre affichée en bas à droite de l'écran ne réagit à aucun toucher dessus ; elle réagit en revanche à un toucher sur la zone visuellement vide qui correspond à sa position symétrique. Reproduit deux fois, y compris après avoir annulé un réglage `user_rotation` laissé par un essai précédent (donc pas un artefact de test).
+**Trouvé lors de** : campagne SS-084 (2026-09-25). Preuve : une fenêtre affichée en bas à droite de l'écran ne réagissait à aucun toucher dessus ; elle réagissait en revanche à un toucher sur la zone visuellement vide qui correspondait à sa position symétrique. Reproduit deux fois, y compris après avoir annulé un réglage `user_rotation` laissé par un essai précédent (donc pas un artefact de test).
 
-**Cause probable** : aucune logique de rotation n'existe dans `PointerMapper`/`TouchInput` (qui utilisent directement `MotionEvent.getX/getY`) — le code fait entièrement confiance à Android pour livrer des coordonnées déjà transformées selon l'orientation courante. Le rendu (composé par le gestionnaire de fenêtres) compense correctement l'orientation ; les évènements tactiles de cette GT-P5110/ROM, dans cette orientation précise, semblent ne pas l'être : un désaccord entre l'affichage et le tactile au niveau de la plateforme, pas dans notre code d'aujourd'hui.
+**Cause** : aucune logique de rotation n'existait dans `PointerMapper`/`TouchInput` (qui utilisent directement `MotionEvent.getX/getY`) — le code faisait entièrement confiance à Android pour livrer des coordonnées déjà transformées selon l'orientation courante. Le rendu (composé par le gestionnaire de fenêtres) compense correctement l'orientation ; les évènements tactiles de cette GT-P5110/ROM, dans cette orientation précise, ne le sont pas : un désaccord entre l'affichage et le tactile au niveau de la plateforme, pas dans le code d'alors.
 
-**Critères** :
-- reproduire et confirmer sur l'appareil réel avant toute correction (déjà fait, voir ci-dessus) ;
-- déterminer par la mesure (`Display.getRotation()` ou équivalent) la ou les valeurs de rotation concernées, sans supposer qu'elle correspond forcément à une constante `Surface.ROTATION_*` prévisible sans vérification ;
-- corriger uniquement pour l'orientation fautive (ne pas casser l'orientation normale, déjà correcte) ;
-- test unitaire pur sur la fonction de correction de coordonnées (donnée une rotation et une position, quelle position corrigée), sans dépendre d'un appareil ;
-- revérifier sur la GT-P5110, dans les deux orientations paysage, avec un toucher sur une cible connue.
+*(Fait : `TouchRotationQuirk` (fonction pure, testée : 6 tests, 3 mutations détectées) annule le défaut uniquement pour `Surface.ROTATION_180` — la valeur mesurée sur l'appareil (campagne SS-084), pas supposée ; les trois autres valeurs de rotation, y compris hors plage, restent inchangées au pixel près. `TouchInput.point()` relit `View.getDisplay().getRotation()` à chaque évènement et corrige avant que `TouchGestureDetector` ne voie quoi que ce soit — seul point d'accès à `MotionEvent` dans toute l'application. 978 tests, lint propre. **Revérifié sur la GT-P5110 dans les deux orientations** : orientation normale inchangée (aucune régression) ; orientation retournée, un toucher sur une fenêtre affichée en bas à droite l'atteint désormais exactement, et un toucher sur la zone visuellement vide qui aurait fonctionné *avant* le correctif n'atteint plus rien — la correction agit dans les deux sens, pas seulement « toujours réussir ».)*
 
 ### SS-085 — Test Ubuntu — P0
 **Statut : 🟡 Partiel** — Tout a été testé contre TigerVNC 1280×800 dans un conteneur Docker sur un hôte Ubuntu. Ce n'est pas un écran virtuel **étendu** du PC, et rien n'est documenté (PC_SETUP.md ne donne que le principe).
