@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-28 d'après le code, les tests et l'historique git (dernier commit : SS-088). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-28 d'après le code, les tests et l'historique git (dernier commit : SS-090). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -17,8 +17,8 @@ Mis à jour le 2026-09-28 d'après le code, les tests et l'historique git (derni
 | E6 — Performance | 5/5 | 0 | 0 |
 | E7 — Sécurité | 4/4 | 0 | 0 |
 | E8 — Tests et compatibilité | 6/9 | 1 | 2 |
-| E9 — Documentation et release | 1/5 | 2 | 2 |
-| **Total** | **51/58** | **3** | **4** |
+| E9 — Documentation et release | 2/5 | 2 | 1 |
+| **Total** | **52/58** | **3** | **3** |
 
 ## Epic E0 — Initialisation
 
@@ -275,5 +275,5 @@ Procédure reproductible et dépannage. *(Fait : GUIDE_WINDOWS.md — pilote Vir
 Versionnement, checksum et notes de version.
 
 ### SS-094 — Licence et notices — P1
-**Statut : ⬜ À faire** — Aucun fichier LICENSE ni NOTICE.
-Licence du projet et dépendances documentées.
+**Statut : ✅ Fait**
+Licence du projet et dépendances documentées. *(Fait : `LICENSE` (MIT, choix confirmé par l'utilisateur), `NOTICE.md` — dépendances tierces établies à partir de l'arbre résolu réel (`./gradlew :app:dependencies`, pas une supposition) : livrées dans l'APK (`kotlin-stdlib` 1.9.24, `org.jetbrains:annotations` 13.0, toutes deux Apache License 2.0), utilisées seulement pour compiler/tester (`junit` 4.13.2 EPL 1.0, `hamcrest-core` 1.3 BSD 3-Clause, absentes de l'APK). Référencées depuis README.md.)*

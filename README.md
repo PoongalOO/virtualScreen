@@ -65,6 +65,8 @@ Une connexion coupée se rétablit automatiquement si la case correspondante est
 - [Guide Windows](GUIDE_WINDOWS.md)
 - [Définition of Done](DEFINITION_OF_DONE.md)
 - [Guide IA / AGENTS.md](AGENTS.md)
+- [Licence](LICENSE)
+- [Notices tierces](NOTICE.md)
 
 ## Contraintes principales
 
@@ -83,3 +85,7 @@ Une connexion coupée se rétablit automatiquement si la case correspondante est
 Le MVP doit se connecter à un serveur VNC sans chiffrement sur un LAN de confiance, négocier RFB, décoder l'encodage RAW 32 bits, afficher un bureau 1280×800 en plein écran et envoyer les événements pointeur de base.
 
 Le chiffrement n'est pas requis pour le MVP : l'application doit explicitement avertir que le VNC classique ne doit être utilisé que sur un réseau local de confiance. Une version ultérieure pourra ajouter un tunnel ou une couche de sécurité compatible avec le matériel.
+
+## Licence
+
+MIT, voir [LICENSE](LICENSE). Les dépendances tierces (deux, livrées dans l'APK : la bibliothèque standard Kotlin et une dépendance transitive d'annotations, toutes deux Apache License 2.0 ; deux autres, JUnit et Hamcrest, utilisées seulement pour les tests, absentes de l'APK) sont documentées dans [NOTICE.md](NOTICE.md).
