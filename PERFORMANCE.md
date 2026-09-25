@@ -34,6 +34,9 @@ La GT-P5110 est un matériel ancien. Le projet optimise d'abord la stabilité, l
 | Rejet d'un rectangle hors écran, d'un encodage, d'un type de message ou d'un `ServerCutText` invalides (loopback local) | 0–1 ms | sonde SS-023/024 |
 | Écran complet 1280×800 d'un vrai bureau (TigerVNC, terminaux à l'écran), **RAW seul**, par Wi-Fi, demande → écran décodé | ~1 700 ms | sonde SS-025/026, 1 essai |
 | Même écran, **Hextile**, par Wi-Fi | ~90 ms (90 et 92 ms sur 2 essais) | sonde SS-025/026 |
+| Démarrage à froid (installation propre, `am start -W`) | **2 119 ms** (`TotalTime`) | campagne SS-084 |
+| Connexion Wi-Fi LAN authentifiée, jusqu'à l'écran distant affiché | **1,45 s** | campagne SS-084 |
+| Reconnexion manuelle (mot de passe ressaisi) | **4,53 s** | campagne SS-084 |
 
 À interpréter avec prudence : ces valeurs viennent d'une sonde ponctuelle exécutée avec `app_process -Xmx48m` (VM du shell, pas le processus de l'application), une seule série de mesures. Elles servent de base de comparaison, pas de garantie ; elles seront refaites dans l'application avec l'instrumentation de SS-060.
 

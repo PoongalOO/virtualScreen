@@ -231,8 +231,8 @@ Cas de sous-encodages.
 Flux déterministes, fragmentation TCP simulée.
 
 ### SS-084 — Test GT-P5110 Android 4.2.2 — P0
-**Statut : 🟡 Partiel** — Installation, connexion, rendu 1:1, tactile, clavier, défilement, reconnexion vérifiés sur la GT-P5110 au fil des issues. Pas de campagne formelle (TESTS.md), ni session de 30 min / 2 h.
-Installation, connexion, rendu, tactile.
+**Statut : 🟡 Partiel** — campagne formelle menée (TESTS.md) : 8 des 9 tests matériels **OK** (installation, démarrage à froid, connexion, rendu 1:1, défilement, déplacement de fenêtre, clavier, déconnexion/reconnexion), plus les sessions 30 min et 2 h (SS-061). **Il manque la rotation physique** : l'app suit le seul capteur (`sensorLandscape`), qu'adb ne peut pas simuler (vérifié).
+Installation, connexion, rendu, tactile. *(Fait : campagne du 2026-09-25 contre un serveur authentifié par mot de passe, vérité serveur indépendante (`xwd`). Aucun défaut trouvé : rendu et défilement pixel-exacts (hors curseur composé par TigerVNC, déjà connu, RFB_SPEC.md), déplacement de fenêtre correct, texte tapé et touche « Effacer » corrects, déconnexion/reconnexion automatique et manuelle robustes (y compris une coupure réelle survenue pendant la campagne, détectée et récupérée sans plantage), retour au premier plan par l'icône correct. Chiffres : démarrage à froid 2,1 s, connexion 1,45 s, reconnexion manuelle 4,5 s (PERFORMANCE.md). **Reste :** rotation physique entre les deux paysages, qui demande de retourner la tablette à la main.)*
 
 ### SS-085 — Test Ubuntu — P0
 **Statut : 🟡 Partiel** — Tout a été testé contre TigerVNC 1280×800 dans un conteneur Docker sur un hôte Ubuntu. Ce n'est pas un écran virtuel **étendu** du PC, et rien n'est documenté (PC_SETUP.md ne donne que le principe).
