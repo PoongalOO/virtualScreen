@@ -18,6 +18,10 @@ Critère : Windows doit être en mode **Étendre ces affichages**, jamais en dup
 
 Voir **[GUIDE_UBUNTU.md](GUIDE_UBUNTU.md)** (SS-091) : deux procédures reproductibles, une pour étendre un vrai bureau existant (sortie `VIRTUAL1` via `xrandr`, non vérifiée faute de GPU dans l'environnement de développement), une pour un écran virtuel isolé sans bureau existant (pilote `dummy` + `x11vnc --clip`, entièrement vérifiée : dimensions et contenu exacts, découpe fidèle au pixel près). Un simple bureau VNC indépendant n'est pas équivalent à un deuxième écran étendu — voir les limites de chaque méthode dans le guide.
 
+## MX Linux
+
+Voir **[GUIDE_MX_LINUX.md](GUIDE_MX_LINUX.md)** : adaptation Debian/MX des procédures `xrandr` + `x11vnc` et `dummy` + `x11vnc`, avec notes sur Xfce/Xorg, le pare-feu MX/ufw et les limites selon le pilote graphique. À vérifier sur une vraie machine MX Linux : noms exacts des sorties `xrandr`, présence d'une sortie `VIRTUAL*`, et outil de pare-feu réellement actif.
+
 ## Réseau
 
 - tablette et PC sur le même LAN ;

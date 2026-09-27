@@ -11,6 +11,12 @@ Testé sur Ubuntu 22.04 LTS (paquets standards ; 24.04 LTS a les mêmes noms de 
 
 Ne fonctionne qu'en session **Xorg**, pas Wayland (GNOME sur Ubuntu 22.04+ démarre en Wayland par défaut). À l'écran de connexion, cliquer sur l'icône en engrenage à côté du champ de mot de passe et choisir **« Ubuntu sur Xorg »** avant de se connecter.
 
+`xrandr` fait partie du paquet `x11-xserver-utils`, généralement déjà installé avec le bureau ; `cvt` (étape 2) est un paquet séparé, `xcvt`, depuis Ubuntu 22.04 — pas garanti présent même avec `x11-xserver-utils` (vérifié : sur Ubuntu 22.04 tout neuf, `x11-xserver-utils` seul ne fournit pas `cvt`) :
+
+```bash
+sudo apt install x11-xserver-utils xcvt
+```
+
 ### 1. Repérer une sortie « VIRTUAL »
 
 Les pilotes graphiques ouverts d'Ubuntu (`modesetting`, `intel`, `amdgpu` — pas le pilote propriétaire NVIDIA) exposent en général une ou plusieurs sorties factices en plus des vraies, justement prévues pour ce genre d'usage :

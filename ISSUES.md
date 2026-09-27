@@ -4,7 +4,7 @@ Format conseillé : labels `P0`, `P1`, `P2`, `android`, `rfb`, `render`, `input`
 
 ## État d'avancement
 
-Mis à jour le 2026-09-28 d'après le code, les tests et l'historique git (dernier commit : SS-090). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
+Mis à jour le 2026-09-28 d'après le code, les tests et l'historique git (dernier commit : SS-094). Légende : ✅ Fait · 🟡 Partiel (ce qui manque est indiqué) · ⬜ À faire. « Fait » veut dire que les critères ont été vérifiés comme décrit dans la note de l'issue, pas que tout a été testé sur toute la matrice matérielle.
 
 | Epic | Fait | Partiel | À faire |
 |---|---|---|---|
@@ -17,8 +17,8 @@ Mis à jour le 2026-09-28 d'après le code, les tests et l'historique git (derni
 | E6 — Performance | 5/5 | 0 | 0 |
 | E7 — Sécurité | 4/4 | 0 | 0 |
 | E8 — Tests et compatibilité | 6/9 | 1 | 2 |
-| E9 — Documentation et release | 2/5 | 2 | 1 |
-| **Total** | **52/58** | **3** | **3** |
+| E9 — Documentation et release | 3/5 | 2 | 0 |
+| **Total** | **53/58** | **3** | **2** |
 
 ## Epic E0 — Initialisation
 
@@ -271,8 +271,8 @@ Procédure reproductible et dépannage. *(Fait : GUIDE_UBUNTU.md, deux procédur
 Procédure reproductible et dépannage. *(Fait : GUIDE_WINDOWS.md — pilote Virtual Display Driver, configuration à 1280×800, dépannage. **Rien de vérifié** : aucune machine Windows disponible pour ce projet, écrit dit explicitement comme tel dans le document, y compris l'incertitude sur le choix du serveur VNC capable de restreindre la capture à un seul moniteur (le point le plus fragile du guide). À confirmer et corriger à l'usage.)*
 
 ### SS-093 — Générer APK release — P1
-**Statut : ⬜ À faire** — Seul l'APK debug est produit (CI). `versionName` 0.1.0, ni minification, ni signature release, ni checksum, ni notes de version.
-Versionnement, checksum et notes de version.
+**Statut : ✅ Fait**
+Versionnement, checksum et notes de version. *(Fait : `versionName` 0.2.0 / `versionCode` 2 ; `.github/workflows/release.yml`, déclenché par un tag `vX.Y.Z`, vérifie que le tag correspond à `versionName`, construit l'APK, publie une Release GitHub avec l'APK, sa somme SHA-256 et les notes tirées de `CHANGELOG.md` — aucun secret de dépôt requis. Reproductibilité vérifiée sur cette machine : deux builds, dont un après `./gradlew clean`, donnent le **même SHA-256** octet pour octet. **Décision explicite de l'utilisateur (confirmée, pas un oubli) : ni signature ni minification pour cette version** — l'APK produit est donc `app-release-unsigned.apk`, qu'Android refuse d'installer tel quel tant qu'il n'est pas signé (`apksigner sign`) ; documenté dans `app/build.gradle.kts`, `CHANGELOG.md` et README.md. La stratégie de garde d'un keystore reste à décider pour lever cette limite.)*
 
 ### SS-094 — Licence et notices — P1
 **Statut : ✅ Fait**
